@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>The Digital Courtyard</title>
+  <meta name="description" content="An infinite canvas. Place shapes, cut shapes out of photos, wander." />
+  <link rel="stylesheet" href="styles/main.css" />
+</head>
+<body>
+  <!-- The viewport holds the transformable world -->
+  <div id="viewport" class="viewport">
+    <div id="world" class="world"></div>
+  </div>
+
+  <!-- Bottom toolbar: choose what to drop into the courtyard -->
+  <nav id="toolbar" class="toolbar" aria-label="Add to canvas">
+    <button class="tool" data-shape="rect" type="button" title="Rectangle" aria-label="Add rectangle">
+      <span class="tool__glyph tool__glyph--rect"></span>
+    </button>
+    <button class="tool" data-shape="circle" type="button" title="Circle" aria-label="Add circle">
+      <span class="tool__glyph tool__glyph--circle"></span>
+    </button>
+    <span class="toolbar__sep" aria-hidden="true"></span>
+    <button class="tool tool--photo" id="photoBtn" type="button" title="Add a photo and cut out its shape" aria-label="Add a photo">
+      <span class="tool__glyph tool__glyph--photo"></span>
+      <span class="tool__label">cut from photo</span>
+    </button>
+    <input id="photoInput" class="visually-hidden" type="file" accept="image/*" />
+  </nav>
+
+  <!-- Zoom readout / reset -->
+  <button id="resetView" class="reset-view" type="button" title="Reset view">
+    <span id="zoomLabel">100%</span>
+  </button>
+
+  <!-- Shape-extraction studio -->
+  <div id="studio" class="studio" hidden>
+    <div class="studio__panel" role="dialog" aria-modal="true" aria-labelledby="studioTitle">
+      <h2 id="studioTitle" class="studio__title">cut out the shape</h2>
+      <p class="studio__hint">We trace the subject by clearing away the background. Drag the slider until the edges look right.</p>
+      <div class="studio__preview">
+        <canvas id="studioCanvas"></canvas>
+      </div>
+      <label class="studio__control">
+        <span>background sensitivity</span>
+        <input id="tolerance" type="range" min="4" max="120" value="40" />
+      </label>
+      <div class="studio__actions">
+        <button id="studioCancel" class="btn btn--ghost" type="button">cancel</button>
+        <button id="studioPlace" class="btn btn--solid" type="button">place on canvas</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="scripts/main.js"></script>
+</body>
+</html>

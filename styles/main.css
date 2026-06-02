@@ -1,0 +1,252 @@
+:root {
+  --bg: #f3efe7;
+  --ink: #2c2a26;
+  --line: #d8d0c2;
+  --dot: #cfc6b5;
+  --accent: #b07d4b;
+  --accent-ink: #fffaf2;
+  --panel: #fbf8f2;
+  --shadow: 0 10px 40px rgba(60, 50, 35, 0.18);
+  --select: #b07d4b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0);
+  white-space: nowrap; border: 0;
+}
+
+/* ---------- Infinite canvas ---------- */
+.viewport {
+  position: fixed;
+  inset: 0;
+  cursor: grab;
+  touch-action: none;            /* we handle all gestures ourselves */
+  background-color: var(--bg);
+  background-image: radial-gradient(var(--dot) 1.4px, transparent 1.4px);
+  background-size: 40px 40px;
+  background-position: 0 0;
+}
+.viewport.is-panning { cursor: grabbing; }
+
+.world {
+  position: absolute;
+  top: 0; left: 0;
+  width: 0; height: 0;
+  transform-origin: 0 0;
+  --inv-scale: 1;                /* updated on zoom; keeps handles crisp */
+}
+
+/* ---------- Items ---------- */
+.item {
+  position: absolute;
+  touch-action: none;
+  user-select: none;
+  will-change: transform;
+}
+.item--rect {
+  background: #e9c9a3;
+  border: 2px solid #c79a63;
+  border-radius: 8px;
+}
+.item--circle {
+  background: #cdd9c3;
+  border: 2px solid #9bb085;
+  border-radius: 50%;
+}
+.item--image {
+  background: transparent;
+}
+.item--image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+  display: block;
+  -webkit-user-drag: none;
+}
+
+.item.is-selected {
+  outline: 2px solid var(--select);
+  outline-offset: 3px;
+}
+.item--circle.is-selected { outline-offset: 3px; border-radius: 50%; }
+
+/* Controls live in screen-space scale via --inv-scale */
+.handle, .delete {
+  position: absolute;
+  display: none;
+  transform-origin: center;
+  transform: scale(var(--inv-scale));
+}
+.item.is-selected .handle,
+.item.is-selected .delete { display: block; }
+
+.handle {
+  right: -10px; bottom: -10px;
+  width: 20px; height: 20px;
+  background: var(--accent);
+  border: 2px solid var(--accent-ink);
+  border-radius: 50%;
+  cursor: nwse-resize;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.delete {
+  right: -12px; top: -12px;
+  width: 22px; height: 22px;
+  background: #b04b4b;
+  border: 2px solid var(--accent-ink);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 14px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+
+/* ---------- Toolbar ---------- */
+.toolbar {
+  position: fixed;
+  left: 50%;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  z-index: 10;
+}
+.toolbar__sep {
+  width: 1px;
+  height: 26px;
+  background: var(--line);
+  margin: 0 2px;
+}
+.tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: transparent;
+  padding: 8px;
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--ink);
+  transition: background .15s ease, transform .1s ease;
+}
+.tool:hover { background: rgba(176,125,75,.12); }
+.tool:active { transform: scale(.94); }
+.tool--photo { padding-right: 14px; }
+.tool__label { font-size: 14px; font-weight: 500; }
+
+.tool__glyph { display: inline-block; width: 22px; height: 22px; }
+.tool__glyph--rect { border: 2.5px solid var(--ink); border-radius: 4px; }
+.tool__glyph--circle { border: 2.5px solid var(--ink); border-radius: 50%; }
+.tool__glyph--photo {
+  border: 2.5px solid var(--ink);
+  border-radius: 5px;
+  position: relative;
+}
+.tool__glyph--photo::after {
+  content: "";
+  position: absolute;
+  left: 3px; bottom: 3px;
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--ink);
+}
+
+/* ---------- Reset view ---------- */
+.reset-view {
+  position: fixed;
+  top: 16px; right: 16px;
+  z-index: 10;
+  padding: 8px 12px;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+
+/* ---------- Studio (shape extraction) ---------- */
+.studio {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  background: rgba(40, 34, 26, 0.55);
+  backdrop-filter: blur(3px);
+  padding: 16px;
+}
+.studio__panel {
+  width: min(520px, 100%);
+  background: var(--panel);
+  border-radius: 18px;
+  padding: 22px;
+  box-shadow: var(--shadow);
+}
+.studio__title { margin: 0 0 4px; font-size: 20px; }
+.studio__hint { margin: 0 0 14px; font-size: 14px; opacity: .75; }
+.studio__preview {
+  background:
+    linear-gradient(45deg, #e3ddd0 25%, transparent 25%) 0 0/20px 20px,
+    linear-gradient(-45deg, #e3ddd0 25%, transparent 25%) 0 10px/20px 20px,
+    linear-gradient(45deg, transparent 75%, #e3ddd0 75%) 10px -10px/20px 20px,
+    linear-gradient(-45deg, transparent 75%, #e3ddd0 75%) -10px 0/20px 20px,
+    #f4f0e8;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  overflow: hidden;
+}
+#studioCanvas { max-width: 100%; max-height: 320px; display: block; }
+.studio__control {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 16px 0;
+  font-size: 13px;
+}
+.studio__control input[type="range"] { width: 100%; accent-color: var(--accent); }
+.studio__actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ---------- Buttons ---------- */
+.btn {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.btn--ghost { background: transparent; color: var(--ink); }
+.btn--ghost:hover { background: rgba(0,0,0,.06); }
+.btn--solid { background: var(--accent); color: var(--accent-ink); }
+.btn--solid:hover { filter: brightness(1.05); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
