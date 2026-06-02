@@ -4,7 +4,14 @@
 
 const KEY = "digital-courtyard:v1";
 
-/** @typedef {{id:string,type:'rect'|'circle'|'image',x:number,y:number,w:number,h:number,src?:string}} Item */
+/** @typedef {{
+ *   id:string, type:'rect'|'circle'|'image'|'text',
+ *   x:number, y:number, w:number, h:number,
+ *   src?:string,                                  // image cut-out
+ *   text?:string, color?:string,                  // text item
+ *   strokes?:{color:string,points:[number,number][]}[], // ink drawn on the item
+ *   parentId?:string, expanded?:boolean           // attached-note grouping
+ * }} Item */
 
 /** @type {Item[]} */
 export const items = load();

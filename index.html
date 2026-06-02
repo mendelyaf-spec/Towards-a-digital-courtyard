@@ -21,6 +21,9 @@
     <button class="tool" data-shape="circle" type="button" title="Circle" aria-label="Add circle">
       <span class="tool__glyph tool__glyph--circle"></span>
     </button>
+    <button class="tool" data-shape="text" type="button" title="Text" aria-label="Add text">
+      <span class="tool__glyph tool__glyph--text">T</span>
+    </button>
     <span class="toolbar__sep" aria-hidden="true"></span>
     <button class="tool tool--photo" id="photoBtn" type="button" title="Add a photo and cut out its shape" aria-label="Add a photo">
       <span class="tool__glyph tool__glyph--photo"></span>
@@ -33,6 +36,15 @@
   <button id="resetView" class="reset-view" type="button" title="Reset view">
     <span id="zoomLabel">100%</span>
   </button>
+
+  <!-- Contextual tools for the selected item -->
+  <div id="itemBar" class="item-bar" hidden>
+    <label class="item-bar__color" title="Choose color">
+      <input id="inkColor" type="color" value="#b04b4b" />
+    </label>
+    <button class="item-bar__btn" data-act="draw" type="button" title="Draw on this">✎ draw</button>
+    <button class="item-bar__btn" data-act="note" type="button" title="Attach a note">＋ note</button>
+  </div>
 
   <!-- Shape-extraction studio -->
   <div id="studio" class="studio" hidden>

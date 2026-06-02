@@ -9,13 +9,18 @@ const zoomLabel = document.getElementById("zoomLabel");
 const viewport = new Viewport(
   document.getElementById("viewport"),
   document.getElementById("world"),
-  { onChange: (s) => (zoomLabel.textContent = Math.round(s * 100) + "%") }
+  {
+    onChange: (s) => {
+      zoomLabel.textContent = Math.round(s * 100) + "%";
+      layer?.positionBar(); // keep the contextual tools pinned to the item
+    },
+  }
 );
 
 const layer = new ItemLayer(document.getElementById("world"), viewport);
 const studio = new Studio();
 
-// --- Toolbar: pick a shape ---
+// --- Toolbar: pick a shape (rect / circle / text) ---
 for (const btn of document.querySelectorAll(".tool[data-shape]")) {
   btn.addEventListener("click", () => layer.add(btn.dataset.shape));
 }
