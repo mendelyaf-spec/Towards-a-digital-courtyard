@@ -325,12 +325,8 @@ html, body {
 .studio__title { margin: 0 0 4px; font-size: 20px; }
 .studio__hint { margin: 0 0 14px; font-size: 14px; opacity: .75; }
 .studio__preview {
-  background:
-    linear-gradient(45deg, #e3ddd0 25%, transparent 25%) 0 0/20px 20px,
-    linear-gradient(-45deg, #e3ddd0 25%, transparent 25%) 0 10px/20px 20px,
-    linear-gradient(45deg, transparent 75%, #e3ddd0 75%) 10px -10px/20px 20px,
-    linear-gradient(-45deg, transparent 75%, #e3ddd0 75%) -10px 0/20px 20px,
-    #f4f0e8;
+  background: #ffffff;
+  border: 1px solid var(--line);
   border-radius: 12px;
   display: grid;
   place-items: center;
