@@ -18,6 +18,7 @@ export class ItemLayer {
     this.selected = null;
     this.drawMode = false;
     this.color = "#b04b4b";
+    this.onSelect = null; // hook: notified with the newly selected id (or null)
 
     this.bar = document.getElementById("itemBar");
     this._wireBar();
@@ -207,6 +208,7 @@ export class ItemLayer {
       this._hideBar();
     }
     this._reflectDrawState();
+    this.onSelect?.(id);
   }
 
   _showBar() {

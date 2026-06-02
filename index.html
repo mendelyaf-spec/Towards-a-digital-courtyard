@@ -6,6 +6,7 @@
   <title>The Digital Courtyard</title>
   <meta name="description" content="An infinite canvas. Place shapes, cut shapes out of photos, wander." />
   <link rel="stylesheet" href="styles/main.css" />
+  <link rel="stylesheet" href="background/background.css" />
 </head>
 <body>
   <!-- The viewport holds the transformable world -->
@@ -30,6 +31,11 @@
       <span class="tool__label">cut from photo</span>
     </button>
     <input id="photoInput" class="visually-hidden" type="file" accept="image/*" />
+    <span class="toolbar__sep" aria-hidden="true"></span>
+    <button class="tool tool--bg" id="bgToggle" type="button" title="Background mode: shapes you place become backgrounds" aria-pressed="false">
+      <span class="tool__glyph tool__glyph--bg"></span>
+      <span class="tool__label">background</span>
+    </button>
   </nav>
 
   <!-- Zoom readout / reset -->

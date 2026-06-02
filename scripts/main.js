@@ -3,6 +3,7 @@
 import { Viewport } from "./viewport.js";
 import { ItemLayer } from "./items.js";
 import { Studio } from "./studio.js";
+import { BackgroundLayer } from "../background/background.js";
 
 const zoomLabel = document.getElementById("zoomLabel");
 
@@ -13,16 +14,36 @@ const viewport = new Viewport(
     onChange: (s) => {
       zoomLabel.textContent = Math.round(s * 100) + "%";
       layer?.positionBar(); // keep the contextual tools pinned to the item
+      bg?.positionBar();
     },
   }
 );
 
-const layer = new ItemLayer(document.getElementById("world"), viewport);
+const worldEl = document.getElementById("world");
+const bg = new BackgroundLayer(worldEl, viewport);
+const layer = new ItemLayer(worldEl, viewport);
 const studio = new Studio();
 
+// Selecting in one layer clears the selection in the other.
+bg.onSelect = () => layer.select(null);
+layer.onSelect = (id) => { if (id) bg.select(null); };
+
+// --- Background mode toggle ---
+const bgToggle = document.getElementById("bgToggle");
+bgToggle.addEventListener("click", () => {
+  const on = bg.toggleMode();
+  bgToggle.classList.toggle("is-on", on);
+  bgToggle.setAttribute("aria-pressed", String(on));
+});
+
 // --- Toolbar: pick a shape (rect / circle / text) ---
+// In background mode, rect/circle become background regions; text is always an item.
 for (const btn of document.querySelectorAll(".tool[data-shape]")) {
-  btn.addEventListener("click", () => layer.add(btn.dataset.shape));
+  btn.addEventListener("click", () => {
+    const shape = btn.dataset.shape;
+    if (bg.mode && shape !== "text") bg.add(shape);
+    else layer.add(shape);
+  });
 }
 
 // --- Toolbar: photo -> cut out shape -> place ---
@@ -35,6 +56,11 @@ photoInput.addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
   await studio.open(file, (dataURL, w, h) => {
+    if (bg.mode) {
+      // The cut-out becomes a translucent background region.
+      bg.add("image", { src: dataURL });
+      return;
+    }
     // Size the placed cut-out to its own aspect ratio.
     const maxSide = 260;
     const ratio = w / h;

@@ -1,0 +1,107 @@
+/* background/background.css — backgrounds layer + its controls. */
+
+.bg-world {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+}
+
+.bg-item {
+  position: absolute;
+  touch-action: none;
+  background-size: cover;
+  background-position: center;
+  border-radius: 10px;
+}
+.bg-item--circle { border-radius: 50%; }
+.bg-item--image { background-repeat: no-repeat; }
+
+.bg-item.is-selected {
+  outline: 2px dashed var(--accent);
+  outline-offset: 4px;
+}
+
+/* Controls scale to stay crisp at any zoom (var lives on .world). */
+.bg-handle,
+.bg-del {
+  position: absolute;
+  display: none;
+  transform: scale(var(--inv-scale));
+  transform-origin: center;
+}
+.bg-item.is-selected .bg-handle,
+.bg-item.is-selected .bg-del { display: block; }
+
+.bg-handle {
+  right: -10px; bottom: -10px;
+  width: 20px; height: 20px;
+  background: var(--accent);
+  border: 2px solid var(--accent-ink);
+  border-radius: 50%;
+  cursor: nwse-resize;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+}
+.bg-del {
+  right: -12px; top: -12px;
+  width: 22px; height: 22px;
+  background: #b04b4b;
+  border: 2px solid var(--accent-ink);
+  border-radius: 50%;
+  color: #fff;
+  font-size: 14px;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+}
+
+/* Floating color + opacity controls for the selected background. */
+.bg-bar {
+  position: fixed;
+  z-index: 20;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+}
+.bg-bar__swatch {
+  display: inline-grid;
+  place-items: center;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  overflow: hidden;
+  cursor: pointer;
+}
+.bg-bar__swatch input[type="color"] {
+  width: 40px; height: 40px;
+  border: none; padding: 0; background: none; cursor: pointer;
+}
+.bg-bar__op {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--ink);
+}
+.bg-bar__range { accent-color: var(--accent); }
+
+/* The toolbar's background toggle, lit when active. */
+.tool--bg.is-on {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.tool--bg.is-on .tool__glyph--bg { border-color: var(--accent-ink); }
+.tool__glyph--bg {
+  border: 2.5px solid var(--ink);
+  border-radius: 5px;
+  background:
+    repeating-linear-gradient(45deg, currentColor 0 2px, transparent 2px 5px);
+  opacity: .85;
+}
