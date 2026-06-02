@@ -22,6 +22,37 @@
   outline: 2px dashed var(--accent);
   outline-offset: 4px;
 }
+/* While placing, it floats above content as a diaphanous preview. */
+.bg-item.is-placing {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  box-shadow: 0 8px 30px rgba(60, 50, 35, .25);
+}
+
+/* Rotate handle, on a little stalk above the region. */
+.bg-rotate {
+  position: absolute;
+  display: none;
+  left: 50%; top: -34px;
+  width: 18px; height: 18px;
+  margin-left: -9px;
+  background: var(--accent);
+  border: 2px solid var(--accent-ink);
+  border-radius: 50%;
+  cursor: grab;
+  transform: scale(var(--inv-scale));
+  transform-origin: center bottom;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
+}
+.bg-rotate::before {
+  content: "";
+  position: absolute;
+  left: 50%; top: 16px;
+  width: 2px; height: 16px;
+  margin-left: -1px;
+  background: var(--accent);
+}
+.bg-item.is-selected .bg-rotate { display: block; }
 
 /* A grouped background hides when its item-group is collapsed. */
 .bg-item {
@@ -101,6 +132,18 @@
   color: var(--ink);
 }
 .bg-bar__range { accent-color: var(--accent); }
+.bg-bar__set {
+  border: none;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bg-bar__set:hover { filter: brightness(1.05); }
 
 /* The toolbar's background toggle, lit when active. */
 .tool--bg.is-on {
