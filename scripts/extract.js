@@ -93,6 +93,40 @@ export function removeBackground(srcCanvas, tolerance) {
     if (y < h - 1) pushIfBg(p + w);
   }
 
+  // Despeckle: the flood-fill can leave scattered specks of background that
+  // were just outside tolerance. Label the surviving (kept) pixels into
+  // connected blobs and drop any that are tiny relative to the main subject,
+  // so we keep the leaf and lose the "static".
+  const label = new Int32Array(N);
+  const sizes = [0];
+  let comp = 0;
+  let maxSize = 0;
+  for (let p = 0; p < N; p++) {
+    if (cleared[p] || label[p]) continue;
+    comp++;
+    let size = 0;
+    let sp2 = 0;
+    stack[sp2++] = p;
+    label[p] = comp;
+    while (sp2 > 0) {
+      const q = stack[--sp2];
+      size++;
+      const x = q % w;
+      const y = (q / w) | 0;
+      if (x > 0 && !cleared[q - 1] && !label[q - 1]) { label[q - 1] = comp; stack[sp2++] = q - 1; }
+      if (x < w - 1 && !cleared[q + 1] && !label[q + 1]) { label[q + 1] = comp; stack[sp2++] = q + 1; }
+      if (y > 0 && !cleared[q - w] && !label[q - w]) { label[q - w] = comp; stack[sp2++] = q - w; }
+      if (y < h - 1 && !cleared[q + w] && !label[q + w]) { label[q + w] = comp; stack[sp2++] = q + w; }
+    }
+    sizes[comp] = size;
+    if (size > maxSize) maxSize = size;
+  }
+  // Keep blobs that are a meaningful fraction of the biggest one; clear specks.
+  const minBlob = Math.max(16, maxSize * 0.02);
+  for (let p = 0; p < N; p++) {
+    if (label[p] && sizes[label[p]] < minBlob) cleared[p] = 1;
+  }
+
   // Build output: clear background, find subject bounds.
   let minX = w, minY = h, maxX = -1, maxY = -1;
   for (let p = 0; p < N; p++) {
