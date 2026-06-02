@@ -17,6 +17,8 @@ export class BackgroundLayer {
     this.selected = null;
     this.nodes = new Map();
     this.onSelect = null;     // hook so the item layer can deselect
+    this.isOpen = null;       // predicate(id): is that item-group open? (injected)
+    this._drag = null;        // snapshot while a group is being dragged
 
     // Dedicated container, pinned as the first child of the world so every
     // background sits beneath the items regardless of later DOM shuffling.
@@ -41,7 +43,7 @@ export class BackgroundLayer {
   }
 
   // ---------- creating ----------
-  add(shape, { src } = {}) {
+  add(shape, { src, parentId } = {}) {
     const c = this.vp.centerWorld();
     const w = 320, h = 240;
     const item = {
@@ -52,6 +54,7 @@ export class BackgroundLayer {
       w: shape === "circle" ? 280 : w,
       h: shape === "circle" ? 280 : h,
       opacity: DEFAULT_OPACITY,
+      ...(parentId ? { parentId } : {}), // bound to an open item-group
       ...(shape === "image" ? { src } : { color: FILL[shape] || "#d7c4a3" }),
     };
     this.items.push(item);
@@ -59,6 +62,46 @@ export class BackgroundLayer {
     this._save();
     this.select(item.id);
     return item;
+  }
+
+  // ---------- group binding (show/move/remove with an item-group) ----------
+  // A grouped background is visible only while its parent group is open.
+  refreshGroupedVisibility() {
+    if (!this.isOpen) return;
+    for (const it of this.items) {
+      if (!it.parentId) continue;
+      this.nodes.get(it.id)?.classList.toggle("is-hidden", !this.isOpen(it.parentId));
+    }
+    if (this.selected) {
+      const sel = this._get(this.selected);
+      if (sel?.parentId && !this.isOpen(sel.parentId)) this.select(null);
+    }
+  }
+
+  beginGroupDrag(ids) {
+    this._drag = this.items
+      .filter((it) => it.parentId && ids.has(it.parentId))
+      .map((it) => ({ it, ix: it.x, iy: it.y }));
+  }
+  groupDragTo(dx, dy) {
+    if (!this._drag) return;
+    for (const d of this._drag) {
+      d.it.x = Math.round(d.ix + dx);
+      d.it.y = Math.round(d.iy + dy);
+      this._style(this.nodes.get(d.it.id), d.it);
+    }
+  }
+  endGroupDrag() {
+    if (!this._drag) return;
+    this._drag = null;
+    this._save();
+  }
+
+  removeGroupedUnder(ids) {
+    const set = new Set(ids);
+    for (const it of [...this.items]) {
+      if (it.parentId && set.has(it.parentId)) this.remove(it.id);
+    }
   }
 
   // ---------- rendering ----------

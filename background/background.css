@@ -23,6 +23,16 @@
   outline-offset: 4px;
 }
 
+/* A grouped background hides when its item-group is collapsed. */
+.bg-item {
+  transition: opacity .18s ease;
+}
+.bg-item.is-hidden {
+  opacity: 0 !important;
+  visibility: hidden;
+  pointer-events: none;
+}
+
 /* Controls scale to stay crisp at any zoom (var lives on .world). */
 .bg-handle,
 .bg-del {

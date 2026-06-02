@@ -18,7 +18,10 @@ export class ItemLayer {
     this.selected = null;
     this.drawMode = false;
     this.color = "#b04b4b";
-    this.onSelect = null; // hook: notified with the newly selected id (or null)
+    this.onSelect = null;     // hook: notified with the newly selected id (or null)
+    this.groupBg = null;      // background layer, so grouped backgrounds travel with groups
+    this.onVisibility = null; // hook: fired when expand/collapse changes what's visible
+    this.onRemove = null;     // hook: fired with the ids removed by a delete
 
     this.bar = document.getElementById("itemBar");
     this._wireBar();
@@ -58,6 +61,17 @@ export class ItemLayer {
       p = parent.parentId;
     }
     return true;
+  }
+
+  // Public: does this item have attached notes?
+  hasChildren(id) {
+    return this._children(id).length > 0;
+  }
+  // Public: is this group "open" — expanded and itself visible? A grouped
+  // background binds to / shows with an open group.
+  isOpen(id) {
+    const item = this._get(id);
+    return !!(item && item.expanded && this._visible(item));
   }
 
   // ---------- creating ----------
@@ -184,6 +198,7 @@ export class ItemLayer {
     if (this.selected && !this._visible(this._get(this.selected))) {
       this.select(null);
     }
+    this.onVisibility?.(); // grouped backgrounds follow expand/collapse
   }
 
   toggleExpand(item) {
@@ -296,6 +311,9 @@ export class ItemLayer {
         ix: k.x,
         iy: k.y,
       }));
+      // Backgrounds attached anywhere in this subtree move with it.
+      const affected = new Set([item.id, ...kids.map((c) => c.k.id)]);
+      this.groupBg?.beginGroupDrag(affected);
       const start = { x: e.clientX, y: e.clientY, ix: item.x, iy: item.y };
       let moved = false;
 
@@ -311,12 +329,14 @@ export class ItemLayer {
           c.k.y = Math.round(c.iy + dy);
           this._layout(c.node, c.k);
         }
+        this.groupBg?.groupDragTo(dx, dy);
         this.positionBar();
       };
       const onUp = (ev) => {
         el.releasePointerCapture(ev.pointerId);
         el.removeEventListener("pointermove", onMove);
         el.removeEventListener("pointerup", onUp);
+        this.groupBg?.endGroupDrag();
         if (!moved && wasSelected && this._children(item.id).length) {
           this.toggleExpand(item);
         } else if (moved) {
@@ -420,6 +440,7 @@ export class ItemLayer {
   }
 
   remove(id) {
+    const removed = [id, ...this._descendants(id).map((d) => d.id)];
     for (const d of this._descendants(id)) {
       this.nodes.get(d.id)?.remove();
       this.nodes.delete(d.id);
@@ -431,6 +452,7 @@ export class ItemLayer {
     removeItem(id);
     if (this.selected === id) this.select(null);
     if (parentId) this._updateBadge(this._get(parentId));
+    this.onRemove?.(removed); // drop any backgrounds bound to this subtree
   }
 }
 

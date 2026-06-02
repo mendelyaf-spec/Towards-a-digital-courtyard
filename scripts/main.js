@@ -28,6 +28,18 @@ const studio = new Studio();
 bg.onSelect = () => layer.select(null);
 layer.onSelect = (id) => { if (id) bg.select(null); };
 
+// Grouped backgrounds: the background layer asks the item layer about
+// open groups; the item layer drives backgrounds when groups move/collapse/delete.
+bg.isOpen = (id) => layer.isOpen(id);
+layer.groupBg = bg;
+layer.onVisibility = () => bg.refreshGroupedVisibility();
+layer.onRemove = (ids) => bg.removeGroupedUnder(ids);
+bg.refreshGroupedVisibility(); // apply to anything restored from storage
+
+// If an expandable item is open, a new background binds to that group.
+const bgParentTarget = () =>
+  layer.selected && layer.isOpen(layer.selected) ? layer.selected : undefined;
+
 // --- Background mode toggle ---
 const bgToggle = document.getElementById("bgToggle");
 bgToggle.addEventListener("click", () => {
@@ -41,7 +53,7 @@ bgToggle.addEventListener("click", () => {
 for (const btn of document.querySelectorAll(".tool[data-shape]")) {
   btn.addEventListener("click", () => {
     const shape = btn.dataset.shape;
-    if (bg.mode && shape !== "text") bg.add(shape);
+    if (bg.mode && shape !== "text") bg.add(shape, { parentId: bgParentTarget() });
     else layer.add(shape);
   });
 }
@@ -58,7 +70,7 @@ photoInput.addEventListener("change", async (e) => {
   await studio.open(file, (dataURL, w, h) => {
     if (bg.mode) {
       // The cut-out becomes a translucent background region.
-      bg.add("image", { src: dataURL });
+      bg.add("image", { src: dataURL, parentId: bgParentTarget() });
       return;
     }
     // Size the placed cut-out to its own aspect ratio.
