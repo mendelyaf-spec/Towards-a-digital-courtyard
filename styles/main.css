@@ -41,10 +41,7 @@ html, body {
   inset: 0;
   cursor: grab;
   touch-action: none;            /* we handle all gestures ourselves */
-  background-color: var(--bg);
-  background-image: radial-gradient(var(--dot) 1.4px, transparent 1.4px);
-  background-size: 40px 40px;
-  background-position: 0 0;
+  background-color: #ffffff;     /* plain white canvas for now */
 }
 .viewport.is-panning { cursor: grabbing; }
 

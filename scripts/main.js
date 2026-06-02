@@ -10,19 +10,20 @@ const zoomLabel = document.getElementById("zoomLabel");
 const viewport = new Viewport(
   document.getElementById("viewport"),
   document.getElementById("world"),
-  {
-    onChange: (s) => {
-      zoomLabel.textContent = Math.round(s * 100) + "%";
-      layer?.positionBar(); // keep the contextual tools pinned to the item
-      bg?.positionBar();
-    },
-  }
+  { onChange: (s) => (zoomLabel.textContent = Math.round(s * 100) + "%") }
 );
 
 const worldEl = document.getElementById("world");
 const bg = new BackgroundLayer(worldEl, viewport);
 const layer = new ItemLayer(worldEl, viewport);
 const studio = new Studio();
+
+// Now that both layers exist, the viewport can also keep their bars pinned.
+viewport.onChange = (s) => {
+  zoomLabel.textContent = Math.round(s * 100) + "%";
+  layer.positionBar();
+  bg.positionBar();
+};
 
 // Selecting in one layer clears the selection in the other.
 bg.onSelect = () => layer.select(null);

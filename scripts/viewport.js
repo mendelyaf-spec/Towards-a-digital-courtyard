@@ -38,9 +38,6 @@ export class Viewport {
     this.world.style.transform =
       `translate(${this.x}px, ${this.y}px) scale(${this.scale})`;
     this.world.style.setProperty("--inv-scale", 1 / this.scale);
-    // Grid follows the transform so it feels like one infinite surface.
-    this.vp.style.backgroundSize = `${40 * this.scale}px ${40 * this.scale}px`;
-    this.vp.style.backgroundPosition = `${this.x}px ${this.y}px`;
     this.onChange(this.scale);
   }
 
