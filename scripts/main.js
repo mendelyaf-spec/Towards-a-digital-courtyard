@@ -59,14 +59,42 @@ for (const btn of document.querySelectorAll(".tool[data-shape]")) {
   });
 }
 
-// --- Toolbar: photo -> cut out shape -> place ---
-const photoInput = document.getElementById("photoInput");
-document.getElementById("photoBtn").addEventListener("click", () => {
-  photoInput.value = ""; // allow re-picking the same file
-  photoInput.click();
+// --- Toolbar: photo -> (take photo | upload) -> cut out shape -> place ---
+const photoBtn = document.getElementById("photoBtn");
+const photoMenu = document.getElementById("photoMenu");
+const photoCamera = document.getElementById("photoCamera");
+const photoUpload = document.getElementById("photoUpload");
+
+function openPhotoMenu(open) {
+  if (open) {
+    const r = photoBtn.getBoundingClientRect();
+    photoMenu.style.left = r.left + r.width / 2 + "px";
+    photoMenu.style.bottom = window.innerHeight - r.top + 10 + "px";
+  }
+  photoMenu.hidden = !open;
+  photoBtn.setAttribute("aria-expanded", String(open));
+}
+
+photoBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  openPhotoMenu(photoMenu.hidden);
 });
-photoInput.addEventListener("change", async (e) => {
-  const file = e.target.files?.[0];
+// Close the menu when tapping anywhere else.
+document.addEventListener("pointerdown", (e) => {
+  if (!photoMenu.hidden && !photoMenu.contains(e.target) && e.target !== photoBtn) {
+    openPhotoMenu(false);
+  }
+});
+photoMenu.querySelectorAll(".photo-menu__item").forEach((item) => {
+  item.addEventListener("click", () => {
+    const input = item.dataset.source === "camera" ? photoCamera : photoUpload;
+    input.value = ""; // allow re-picking the same file
+    input.click();
+    openPhotoMenu(false);
+  });
+});
+
+async function handlePhotoFile(file) {
   if (!file) return;
   await studio.open(file, (dataURL, w, h) => {
     if (bg.mode) {
@@ -83,12 +111,9 @@ photoInput.addEventListener("change", async (e) => {
       h: Math.round(ratio >= 1 ? maxSide / ratio : maxSide),
     });
   });
-});
+}
+photoCamera.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
+photoUpload.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
 
 // --- Reset view ---
 document.getElementById("resetView").addEventListener("click", () => viewport.reset());
-
-// Enable camera capture on mobile devices that support it.
-if (/Mobi|Android|iPhone|iPad/.test(navigator.userAgent)) {
-  photoInput.setAttribute("capture", "environment");
-}

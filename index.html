@@ -36,11 +36,12 @@
       <span class="tool__glyph tool__glyph--text">T</span>
     </button>
     <span class="toolbar__sep" aria-hidden="true"></span>
-    <button class="tool tool--photo" id="photoBtn" type="button" title="Add a photo and cut out its shape" aria-label="Add a photo">
+    <button class="tool tool--photo" id="photoBtn" type="button" title="Add a photo and cut out its shape" aria-haspopup="true" aria-expanded="false" aria-label="Add a photo">
       <span class="tool__glyph tool__glyph--photo"></span>
       <span class="tool__label">cut from photo</span>
     </button>
-    <input id="photoInput" class="visually-hidden" type="file" accept="image/*" />
+    <input id="photoCamera" class="visually-hidden" type="file" accept="image/*" capture="environment" />
+    <input id="photoUpload" class="visually-hidden" type="file" accept="image/*" />
     <span class="toolbar__sep" aria-hidden="true"></span>
     <button class="tool tool--bg" id="bgToggle" type="button" title="Background mode: shapes you place become backgrounds" aria-pressed="false">
       <span class="tool__glyph tool__glyph--bg"></span>
@@ -52,6 +53,12 @@
   <button id="resetView" class="reset-view" type="button" title="Reset view">
     <span id="zoomLabel">100%</span>
   </button>
+
+  <!-- Take-photo / upload chooser -->
+  <div id="photoMenu" class="photo-menu" role="menu" hidden>
+    <button class="photo-menu__item" data-source="camera" type="button" role="menuitem">take photo</button>
+    <button class="photo-menu__item" data-source="upload" type="button" role="menuitem">upload</button>
+  </div>
 
   <!-- Contextual tools for the selected item -->
   <div id="itemBar" class="item-bar" hidden>
