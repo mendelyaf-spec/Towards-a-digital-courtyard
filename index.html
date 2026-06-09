@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>The Digital Courtyard</title>
   <meta name="description" content="An infinite canvas. Place shapes, cut shapes out of photos, wander." />
+
+  <!-- Installable app (Add to Home Screen) -->
+  <link rel="manifest" href="manifest.webmanifest" />
+  <meta name="theme-color" content="#3a8a3a" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Courtyard" />
+
   <link rel="stylesheet" href="styles/main.css" />
   <link rel="stylesheet" href="background/background.css" />
 </head>
@@ -72,5 +82,13 @@
   </div>
 
   <script type="module" src="scripts/main.js"></script>
+  <script>
+    // Register the service worker so the app installs and works offline.
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("sw.js").catch(() => {});
+      });
+    }
+  </script>
 </body>
 </html>
