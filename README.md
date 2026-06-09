@@ -39,11 +39,16 @@ To stop the server, press `Ctrl+C` in that terminal.
 
 | Area | Lives in |
 |------|----------|
-| Page shell, toolbar, modals | `index.html` |
+| Page shell (home / canvas / courtyard views) | `index.html` |
 | Look & feel | `styles/main.css` |
+| App shell + routing wiring | `scripts/main.js`, `scripts/router.js` |
+| Home page (your named canvases + courtyards) | `scripts/home.js` |
+| Multi-canvas storage + profile | `scripts/store.js` |
 | Infinite canvas (pan / zoom / pinch) | `scripts/viewport.js` |
 | Items: shapes, text, draw, attach/expand | `scripts/items.js` |
 | Photo → cut-out shape extraction | `scripts/extract.js`, `scripts/studio.js` |
-| Saved state | `scripts/store.js` |
-| App bootstrap / wiring | `scripts/main.js` |
 | Selective backgrounds (place, rotate, set behind content) | `background/` |
+| Courtyard creation + invites | `courtyardcreationlogic.js` |
+| Courtyard page (void + two halves) | `scripts/courtyard.js` |
+| Shared void interactions (placeholders) | `events/`, `pending-requests/`, `rules/` |
+| Installable app | `manifest.webmanifest`, `sw.js`, `icons/` |

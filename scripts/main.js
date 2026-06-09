@@ -1,12 +1,25 @@
-// main.js — bootstrap. Wires the viewport, item layer, toolbar and studio.
+// main.js — app shell. Sets up the canvas subsystem once, then routes between
+// the home page, a single canvas, and a courtyard.
 
 import { Viewport } from "./viewport.js";
 import { ItemLayer } from "./items.js";
 import { Studio } from "./studio.js";
 import { BackgroundLayer } from "../background/background.js";
+import { startRouter, go } from "./router.js";
+import { renderHome } from "./home.js";
+import { renderCourtyard } from "./courtyard.js";
+import { migrate, getCanvas, createCanvas, listCanvases } from "./store.js";
+import { consumeInvite } from "../courtyardcreationlogic.js";
 
+migrate(); // bring any old single-canvas data forward
+
+const homeView = document.getElementById("homeView");
+const canvasView = document.getElementById("canvasView");
+const courtyardView = document.getElementById("courtyardView");
 const zoomLabel = document.getElementById("zoomLabel");
+const canvasTitle = document.getElementById("canvasTitle");
 
+// ---------- canvas subsystem (built once, loads a canvas on demand) ----------
 const viewport = new Viewport(
   document.getElementById("viewport"),
   document.getElementById("world"),
@@ -18,30 +31,23 @@ const bg = new BackgroundLayer(worldEl, viewport);
 const layer = new ItemLayer(worldEl, viewport);
 const studio = new Studio();
 
-// Now that both layers exist, the viewport can also keep their bars pinned.
 viewport.onChange = (s) => {
   zoomLabel.textContent = Math.round(s * 100) + "%";
   layer.positionBar();
   bg.positionBar();
 };
 
-// Selecting in one layer clears the selection in the other.
 bg.onSelect = () => layer.select(null);
 layer.onSelect = (id) => { if (id) bg.select(null); };
-
-// Grouped backgrounds: the background layer asks the item layer about
-// open groups; the item layer drives backgrounds when groups move/collapse/delete.
 bg.isOpen = (id) => layer.isOpen(id);
 layer.groupBg = bg;
 layer.onVisibility = () => bg.refreshGroupedVisibility();
 layer.onRemove = (ids) => bg.removeGroupedUnder(ids);
-bg.refreshGroupedVisibility(); // apply to anything restored from storage
 
-// If an expandable item is open, a new background binds to that group.
 const bgParentTarget = () =>
   layer.selected && layer.isOpen(layer.selected) ? layer.selected : undefined;
 
-// --- Background mode toggle ---
+// --- toolbar wiring ---
 const bgToggle = document.getElementById("bgToggle");
 bgToggle.addEventListener("click", () => {
   const on = bg.toggleMode();
@@ -49,8 +55,6 @@ bgToggle.addEventListener("click", () => {
   bgToggle.setAttribute("aria-pressed", String(on));
 });
 
-// --- Toolbar: pick a shape (rect / circle / text) ---
-// In background mode, rect/circle become background regions; text is always an item.
 for (const btn of document.querySelectorAll(".tool[data-shape]")) {
   btn.addEventListener("click", () => {
     const shape = btn.dataset.shape;
@@ -59,7 +63,6 @@ for (const btn of document.querySelectorAll(".tool[data-shape]")) {
   });
 }
 
-// --- Toolbar: photo -> (take photo | upload) -> cut out shape -> place ---
 const photoBtn = document.getElementById("photoBtn");
 const photoMenu = document.getElementById("photoMenu");
 const photoCamera = document.getElementById("photoCamera");
@@ -74,35 +77,22 @@ function openPhotoMenu(open) {
   photoMenu.hidden = !open;
   photoBtn.setAttribute("aria-expanded", String(open));
 }
-
-photoBtn.addEventListener("click", (e) => {
-  e.stopPropagation();
-  openPhotoMenu(photoMenu.hidden);
-});
-// Close the menu when tapping anywhere else.
+photoBtn.addEventListener("click", (e) => { e.stopPropagation(); openPhotoMenu(photoMenu.hidden); });
 document.addEventListener("pointerdown", (e) => {
-  if (!photoMenu.hidden && !photoMenu.contains(e.target) && e.target !== photoBtn) {
-    openPhotoMenu(false);
-  }
+  if (!photoMenu.hidden && !photoMenu.contains(e.target) && e.target !== photoBtn) openPhotoMenu(false);
 });
 photoMenu.querySelectorAll(".photo-menu__item").forEach((item) => {
   item.addEventListener("click", () => {
     const input = item.dataset.source === "camera" ? photoCamera : photoUpload;
-    input.value = ""; // allow re-picking the same file
+    input.value = "";
     input.click();
     openPhotoMenu(false);
   });
 });
-
 async function handlePhotoFile(file) {
   if (!file) return;
   await studio.open(file, (dataURL, w, h) => {
-    if (bg.mode) {
-      // The cut-out becomes a translucent background region.
-      bg.add("image", { src: dataURL, parentId: bgParentTarget() });
-      return;
-    }
-    // Size the placed cut-out to its own aspect ratio.
+    if (bg.mode) { bg.add("image", { src: dataURL, parentId: bgParentTarget() }); return; }
     const maxSide = 260;
     const ratio = w / h;
     layer.add("image", {
@@ -115,5 +105,53 @@ async function handlePhotoFile(file) {
 photoCamera.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
 photoUpload.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
 
-// --- Reset view ---
 document.getElementById("resetView").addEventListener("click", () => viewport.reset());
+document.getElementById("canvasBack").addEventListener("click", () => go(""));
+
+if (/Mobi|Android|iPhone|iPad/.test(navigator.userAgent)) {
+  photoCamera.setAttribute("capture", "environment");
+}
+
+// ---------- views ----------
+function showView(name) {
+  // Leaving the canvas: drop any selection / open menus.
+  layer.select(null);
+  bg.select(null);
+  studio.close();
+  openPhotoMenu(false);
+  homeView.hidden = name !== "home";
+  canvasView.hidden = name !== "canvas";
+  courtyardView.hidden = name !== "courtyard";
+}
+
+function showHome() {
+  showView("home");
+  renderHome(homeView);
+}
+function showCanvas(id) {
+  if (!id || !getCanvas(id)) return go("");
+  showView("canvas");
+  canvasTitle.textContent = getCanvas(id).name;
+  layer.loadCanvas(id);
+  bg.loadCanvas(id);
+  viewport.reset();
+}
+function showCourtyard(id) {
+  showView("courtyard");
+  renderCourtyard(courtyardView, id);
+}
+function showJoin(token) {
+  // On this device, consume the invite and jump into the new courtyard.
+  // (Cross-device joining needs the shared backend.)
+  const myCanvas = listCanvases()[0] || createCanvas("My canvas");
+  const res = consumeInvite(token, myCanvas.id);
+  if (res.error) { alert(res.error); return go(""); }
+  go("courtyard/" + res.courtyard.id);
+}
+
+startRouter({
+  "": showHome,
+  canvas: showCanvas,
+  courtyard: showCourtyard,
+  join: showJoin,
+});

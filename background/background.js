@@ -9,7 +9,8 @@
 // A region can also bind to an open item-group (parentId) so it hides, moves,
 // and is deleted along with that group.
 
-const KEY = "digital-courtyard:bg:v1";
+import { canvasBgKey } from "../scripts/store.js";
+
 const MIN_SIZE = 30;
 const PLACING_OPACITY = 0.5;   // diaphanous while you position it
 const DEFAULT_OPACITY = 1;     // solid once it's the background (slider can lower)
@@ -25,6 +26,8 @@ export class BackgroundLayer {
     this.onSelect = null;     // hook so the item layer can deselect
     this.isOpen = null;       // predicate(id): is that item-group open? (injected)
     this._drag = null;        // snapshot while a group is being dragged
+    this.canvasId = null;     // which canvas these backgrounds belong to
+    this.items = [];
 
     // Behind all content.
     this.bgWorld = document.createElement("div");
@@ -36,15 +39,28 @@ export class BackgroundLayer {
     this.placeWorld.className = "bg-world bg-world--place";
     worldEl.appendChild(this.placeWorld);
 
-    this.items = load();
     this._buildBar();
 
     viewport.vp.addEventListener("pointerdown", (e) => {
       if (e.target === viewport.vp) this.select(null);
     });
+  }
 
+  // Swap to another canvas's backgrounds.
+  loadCanvas(id) {
+    for (const el of this.nodes.values()) el.remove();
+    this.nodes.clear();
+    this.selected = null;
+    this.bar.hidden = true;
+    this.canvasId = id;
+    try {
+      this.items = JSON.parse(localStorage.getItem(canvasBgKey(id))) || [];
+    } catch {
+      this.items = [];
+    }
     for (const it of this.items) this._render(it);
-    this._toFront(); // ensure the placing layer sits above restored items
+    this._toFront();
+    this.refreshGroupedVisibility();
   }
 
   toggleMode() {
@@ -353,18 +369,11 @@ export class BackgroundLayer {
   }
 
   _save() {
+    if (!this.canvasId) return;
     try {
-      localStorage.setItem(KEY, JSON.stringify(this.items));
+      localStorage.setItem(canvasBgKey(this.canvasId), JSON.stringify(this.items));
     } catch {
       /* in-session only if storage is unavailable */
     }
-  }
-}
-
-function load() {
-  try {
-    return JSON.parse(localStorage.getItem(KEY)) || [];
-  } catch {
-    return [];
   }
 }

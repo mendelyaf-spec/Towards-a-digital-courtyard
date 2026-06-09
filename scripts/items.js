@@ -5,7 +5,7 @@
 // notes that reveal/hide when you tap it — and those notes are themselves
 // full items, so the nesting goes as deep as you like.
 
-import { items, save, addItem, removeItem, newId } from "./store.js";
+import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js";
 
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
@@ -30,6 +30,19 @@ export class ItemLayer {
       if (e.target === viewport.vp) this.select(null);
     });
 
+    for (const it of items) this._render(it);
+    this._applyVisibility();
+  }
+
+  // Swap the whole canvas: clear the current nodes and render another canvas's
+  // items. The store rebinds `items` to the opened canvas.
+  loadCanvas(id) {
+    for (const el of this.nodes.values()) el.remove();
+    this.nodes.clear();
+    this.selected = null;
+    this.drawMode = false;
+    this._hideBar();
+    openCanvas(id);
     for (const it of items) this._render(it);
     this._applyVisibility();
   }
