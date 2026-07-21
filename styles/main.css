@@ -446,6 +446,18 @@ html, body {
   width: 40px; height: 40px;
   border: none; padding: 0; background: none; cursor: pointer;
 }
+.item-bar__op {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+  padding: 0 4px;
+}
+.item-bar__op input[type="range"] {
+  width: 80px;
+  accent-color: var(--accent);
+}
 .item-bar__btn {
   border: none;
   background: transparent;

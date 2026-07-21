@@ -10,6 +10,11 @@ import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js"
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
 
+// Base fill color (as r,g,b) per item type, matching the CSS defaults, so
+// the opacity slider can fade the fill without touching its content.
+const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", text: "255,253,247" };
+const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 0.82, image: 1 };
+
 export class ItemLayer {
   constructor(worldEl, viewport) {
     this.world = worldEl;
@@ -167,11 +172,25 @@ export class ItemLayer {
     handle.className = "handle";
     el.appendChild(handle);
 
+    this._applyFill(el, item);
     this._wire(el, item, { svg, handle, del, badge });
     this.world.appendChild(el);
     this.nodes.set(item.id, el);
     this._updateBadge(item);
     return el;
+  }
+
+  // Fades just the shape's fill / wash — text, ink, image, and controls
+  // stay fully visible so text placed on a lighter shape reads clearly.
+  _applyFill(el, item) {
+    const op = item.opacity ?? DEFAULT_OPACITY[item.type] ?? 1;
+    if (item.type === "image") {
+      const img = el.querySelector("img");
+      if (img) img.style.opacity = op;
+      return;
+    }
+    const rgb = FILL_RGB[item.type];
+    if (rgb) el.style.backgroundColor = `rgba(${rgb}, ${op})`;
   }
 
   _layout(el, item) {
@@ -243,6 +262,8 @@ export class ItemLayer {
     this.bar.hidden = false;
     const item = this._get(this.selected);
     this.bar.querySelector("#inkColor").value = item?.color || this.color;
+    const def = DEFAULT_OPACITY[item?.type] ?? 1;
+    this.bar.querySelector("#itemOpacity").value = Math.round((item?.opacity ?? def) * 100);
     this.positionBar();
   }
   _hideBar() {
@@ -262,6 +283,9 @@ export class ItemLayer {
   _wireBar() {
     this.bar.querySelector("#inkColor").addEventListener("input", (e) =>
       this.setColor(e.target.value)
+    );
+    this.bar.querySelector("#itemOpacity").addEventListener("input", (e) =>
+      this.setOpacity(e.target.value / 100)
     );
     this.bar.querySelector('[data-act="draw"]').addEventListener("click", () => {
       this.drawMode = !this.drawMode;
@@ -287,6 +311,14 @@ export class ItemLayer {
       this.nodes.get(item.id).querySelector(".text-body").style.color = c;
       save();
     }
+  }
+
+  setOpacity(op) {
+    const item = this._get(this.selected);
+    if (!item) return;
+    item.opacity = op;
+    this._applyFill(this.nodes.get(item.id), item);
+    save();
   }
 
   attachNote() {
