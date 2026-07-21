@@ -274,10 +274,16 @@ export class ItemLayer {
     const item = this._get(this.selected);
     if (!item) return;
     const s = this.vp.scale;
-    const sx = this.vp.x + (item.x + item.w / 2) * s;
-    const sy = this.vp.y + item.y * s;
+    let sx = this.vp.x + (item.x + item.w / 2) * s;
+    let sy = this.vp.y + item.y * s - this.bar.offsetHeight - 12;
+    // Clamp on-screen so a very large or panned-away item can't push the
+    // bar (draw/note/opacity controls) out of reach.
+    const barW = this.bar.offsetWidth || 200;
+    const barH = this.bar.offsetHeight || 40;
+    sx = Math.min(Math.max(sx, barW / 2 + 8), window.innerWidth - barW / 2 - 8);
+    sy = Math.min(Math.max(sy, 8), window.innerHeight - barH - 8);
     this.bar.style.left = sx + "px";
-    this.bar.style.top = sy - this.bar.offsetHeight - 12 + "px";
+    this.bar.style.top = sy + "px";
   }
 
   _wireBar() {

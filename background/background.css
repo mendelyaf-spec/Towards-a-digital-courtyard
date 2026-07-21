@@ -144,6 +144,18 @@
   white-space: nowrap;
 }
 .bg-bar__set:hover { filter: brightness(1.05); }
+.bg-bar__fill {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.bg-bar__fill:hover { background: rgba(176, 125, 75, .12); }
 
 /* The toolbar's background toggle, lit when active. */
 .tool--bg.is-on {

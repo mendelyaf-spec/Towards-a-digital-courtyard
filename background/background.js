@@ -118,6 +118,24 @@ export class BackgroundLayer {
     this.worldEl.appendChild(this.placeWorld); // keep the placing layer on top
   }
 
+  // Resize + reposition a region to cover the whole visible canvas right now,
+  // with a little slack so small panning doesn't immediately reveal an edge.
+  fillScreen(id) {
+    const item = this._get(id);
+    if (!item) return;
+    const pad = 0.15;
+    const tl = this.vp.screenToWorld(0, 0);
+    const br = this.vp.screenToWorld(window.innerWidth, window.innerHeight);
+    const w = br.x - tl.x, h = br.y - tl.y;
+    item.x = Math.round(tl.x - w * pad);
+    item.y = Math.round(tl.y - h * pad);
+    item.w = Math.round(w * (1 + pad * 2));
+    item.h = Math.round(h * (1 + pad * 2));
+    this._style(this.nodes.get(id), item);
+    this._save();
+    this.positionBar();
+  }
+
   // ---------- group binding ----------
   refreshGroupedVisibility() {
     if (!this.isOpen) return;
@@ -190,7 +208,10 @@ export class BackgroundLayer {
     el.style.width = item.w + "px";
     el.style.height = item.h + "px";
     el.style.transform = `rotate(${item.rotation || 0}deg)`;
-    el.style.opacity = item.placing ? PLACING_OPACITY : item.opacity;
+    // While placing, cap (don't fix) the preview at PLACING_OPACITY: a lower
+    // slider value still shows through live; higher values stay capped so
+    // you can keep seeing what's underneath until you commit it.
+    el.style.opacity = item.placing ? Math.min(item.opacity, PLACING_OPACITY) : item.opacity;
     el.classList.toggle("is-placing", !!item.placing);
     if (item.shape !== "image") el.style.background = item.color;
   }
@@ -229,8 +250,17 @@ export class BackgroundLayer {
     const item = this._get(this.selected);
     if (!item) return;
     const s = this.vp.scale;
-    this.bar.style.left = this.vp.x + (item.x + item.w / 2) * s + "px";
-    this.bar.style.top = this.vp.y + item.y * s - this.bar.offsetHeight - 28 + "px";
+    let left = this.vp.x + (item.x + item.w / 2) * s;
+    let top = this.vp.y + item.y * s - this.bar.offsetHeight - 28;
+    // Clamp on-screen: a "fill screen" region's bounds extend past the
+    // viewport, so anchoring blindly to the item would push the bar (and its
+    // "set background" button) out of reach.
+    const barW = this.bar.offsetWidth || 260;
+    const barH = this.bar.offsetHeight || 44;
+    left = Math.min(Math.max(left, barW / 2 + 8), window.innerWidth - barW / 2 - 8);
+    top = Math.min(Math.max(top, 8), window.innerHeight - barH - 8);
+    this.bar.style.left = left + "px";
+    this.bar.style.top = top + "px";
   }
 
   _buildBar() {
@@ -245,12 +275,17 @@ export class BackgroundLayer {
         <span>opacity</span>
         <input type="range" min="10" max="100" value="100" class="bg-bar__range" />
       </label>
+      <button type="button" class="bg-bar__fill" title="Resize to cover the whole visible canvas">fill screen</button>
       <button type="button" class="bg-bar__set">set background</button>`;
     document.body.appendChild(bar);
     this.bar = bar;
     this._colorInput = bar.querySelector(".bg-bar__color");
     this._opInput = bar.querySelector(".bg-bar__range");
     this._setBtn = bar.querySelector(".bg-bar__set");
+    this._fillBtn = bar.querySelector(".bg-bar__fill");
+    this._fillBtn.addEventListener("click", () => {
+      if (this.selected) this.fillScreen(this.selected);
+    });
 
     this._colorInput.addEventListener("input", (e) => {
       const item = this._get(this.selected);
@@ -263,7 +298,7 @@ export class BackgroundLayer {
       const item = this._get(this.selected);
       if (!item) return;
       item.opacity = e.target.value / 100;
-      if (!item.placing) this.nodes.get(item.id).style.opacity = item.opacity;
+      this._style(this.nodes.get(item.id), item); // live feedback whether placing or already set
       this._save();
     });
     this._setBtn.addEventListener("click", () => {
