@@ -53,3 +53,46 @@
   cursor: pointer;
   font-size: 13px;
 }
+
+/* ---- a video "buried" in any other item (see items.js's item.embed) ---- */
+/* Small, quiet corner indicator — the item otherwise looks exactly like its
+   normal content until played. Bottom-left: geo pin owns top-left, delete
+   owns top-right, resize handle owns bottom-right, note badge owns
+   bottom-center. */
+.embed-badge {
+  position: absolute;
+  left: -8px; bottom: -8px;
+  transform: scale(var(--inv-scale, 1));
+  transform-origin: bottom left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  font-size: 10px;
+  box-shadow: 0 2px 5px rgba(0,0,0,.18);
+  pointer-events: none; /* purely an indicator */
+}
+.embed-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #000;
+  z-index: 3;
+}
+.embed-overlay.is-active { display: block; }
+.embed-overlay__iframe { width: 100%; height: 100%; border: none; display: block; }
+.embed-overlay__close {
+  position: absolute;
+  top: 6px; right: 6px;
+  z-index: 2;
+  border: none;
+  background: rgba(15, 15, 16, 0.8);
+  color: #fff;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 13px;
+}

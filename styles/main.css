@@ -196,6 +196,11 @@ html, body {
   user-select: none;
   will-change: transform;
 }
+/* Dragged over the pocket — signals "let go to send it back". */
+.item.is-over-pocket {
+  opacity: .45;
+  transform: scale(.92);
+}
 .item--rect {
   background: #e9c9a3;
   border: 2px solid #c79a63;

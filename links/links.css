@@ -30,6 +30,10 @@
   border: none; background: transparent; color: var(--ink);
   font-size: 12.5px; cursor: pointer; padding: 6px 8px;
 }
+.link-pop__remove {
+  border: none; background: transparent; color: #b04b4b;
+  font-size: 12.5px; cursor: pointer; padding: 6px 4px;
+}
 .link-pop__add {
   border: none; background: var(--accent); color: var(--accent-ink);
   font-weight: 600; font-size: 12.5px; border-radius: 8px;

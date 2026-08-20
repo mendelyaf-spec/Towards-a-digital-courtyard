@@ -5,7 +5,7 @@ import { Viewport } from "./viewport.js";
 import { ItemLayer } from "./items.js";
 import { Studio } from "./studio.js";
 import { BackgroundLayer } from "../background/background.js";
-import { PocketPanel, getPocketBlobURL } from "../pocket/pocket.js";
+import { PocketPanel, getPocketBlobURL, sendItemToPocket } from "../pocket/pocket.js";
 import { openLinkPrompt, closeLinkPrompt } from "../links/links.js";
 import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
@@ -115,7 +115,11 @@ photoUpload.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0
 // ---------- pocket: staged docs/videos/object photos for this canvas ----------
 layer.resolveFileUrl = getPocketBlobURL; // 'file' items open by resolving their pocket blob on click
 
-const pocket = new PocketPanel({
+let pocket; // referenced by the hooks below, assigned once constructed
+layer.getPocketDropRect = () => pocket?.getDropRect() ?? null;
+layer.onSendToPocket = (item) => sendItemToPocket(pocket.canvasId, item);
+
+pocket = new PocketPanel({
   onPlace: async (record) => {
     if (record.kind === "photo") {
       // Route through the same cut-out studio as the toolbar, carrying the

@@ -30,6 +30,8 @@ export class ItemLayer {
     this.onVisibility = null; // hook: fired when expand/collapse changes what's visible
     this.onRemove = null;     // hook: fired with the ids removed by a delete
     this.resolveFileUrl = null; // hook: async(pocketId) -> blob URL, for 'file' items (docs/videos from the pocket)
+    this.getPocketDropRect = null; // hook: () -> DOMRect | null — where "drag to pocket" drops
+    this.onSendToPocket = null;    // hook: async(item) -> boolean — true if the pocket accepted it
 
     this.bar = document.getElementById("itemBar");
     this._wireBar();
@@ -183,10 +185,12 @@ export class ItemLayer {
       el.appendChild(card);
       fileOpen = card.querySelector(".file-card__open");
     }
+    let ytPoster = null;
     if (item.type === "youtube") {
       const ytCard = document.createElement("div");
       ytCard.className = "yt-card";
-      ytCard.append(this._buildYtPoster(item), ytTitleEl(item));
+      ytPoster = this._buildYtPoster(item);
+      ytCard.append(ytPoster, ytTitleEl(item));
       el.appendChild(ytCard);
     }
     let linkOpen = null;
@@ -212,6 +216,22 @@ export class ItemLayer {
       linkOpen.textContent = "open";
       card.append(favicon, text, linkOpen);
       el.appendChild(card);
+    }
+
+    // A "buried" video: any item can carry one (item.embed = {videoId,title}).
+    // It stays invisible — the item looks exactly like its normal content —
+    // until tapped, when the video plays right over it in place.
+    let embedOverlay = null;
+    if (item.embed) {
+      const embedBadge = document.createElement("div");
+      embedBadge.className = "embed-badge";
+      embedBadge.title = item.embed.title || "Has a video";
+      embedBadge.textContent = "▶";
+      el.appendChild(embedBadge);
+
+      embedOverlay = document.createElement("div");
+      embedOverlay.className = "embed-overlay";
+      el.appendChild(embedOverlay);
     }
 
     // Geotag pin — shown on any item with a saved location.
@@ -247,7 +267,7 @@ export class ItemLayer {
     el.appendChild(handle);
 
     this._applyFill(el, item);
-    this._wire(el, item, { svg, handle, del, badge, geo, fileOpen, linkOpen });
+    this._wire(el, item, { svg, handle, del, badge, geo, fileOpen, linkOpen, ytPoster, embedOverlay });
     this.world.appendChild(el);
     this.nodes.set(item.id, el);
     this._updateBadge(item);
@@ -279,9 +299,13 @@ export class ItemLayer {
     if (rgb) el.style.backgroundColor = `rgba(${rgb}, ${op})`;
   }
 
-  // A YouTube item shows a poster (its thumbnail) until clicked, then swaps
-  // to a live iframe — an iframe would otherwise swallow every pointer event
-  // over the whole box, making the item impossible to drag/select while idle.
+  // A YouTube item shows a poster (its thumbnail) until played. The poster
+  // itself has NO click/drag handling of its own — it participates in the
+  // ordinary body pointerdown handler below like any other item content, so
+  // dragging it works exactly like dragging anything else. Playing is
+  // triggered from there too (a tap that didn't move). Giving the poster its
+  // own stopPropagation()'d click handler was the earlier bug: it ate every
+  // pointerdown before a drag could ever begin, so the item couldn't be moved.
   _buildYtPoster(item) {
     const poster = document.createElement("button");
     poster.type = "button";
@@ -291,11 +315,6 @@ export class ItemLayer {
     play.className = "yt-card__play";
     play.textContent = "▶";
     poster.appendChild(play);
-    poster.addEventListener("pointerdown", (e) => e.stopPropagation());
-    poster.addEventListener("click", (e) => {
-      e.stopPropagation();
-      this._setYtPlaying(poster.closest(".yt-card"), item, true);
-    });
     return poster;
   }
 
@@ -305,23 +324,47 @@ export class ItemLayer {
       card.append(this._buildYtPoster(item), ytTitleEl(item));
       return;
     }
-    const iframe = document.createElement("iframe");
-    iframe.src = youtubeEmbedUrl(item.videoId, { autoplay: true });
+    const { iframe, close } = this._buildEmbedIframe(item.videoId, () => this._setYtPlaying(card, item, false));
     iframe.className = "yt-card__iframe";
+    close.className = "yt-card__shrink";
+    close.title = "Back to thumbnail";
+    close.textContent = "⤡";
+    card.append(iframe, close);
+  }
+
+  // Shared by the dedicated 'youtube' item's poster AND any item carrying a
+  // "buried" item.embed — both just need an iframe + a way to stop it.
+  _buildEmbedIframe(videoId, onClose) {
+    const iframe = document.createElement("iframe");
+    iframe.src = youtubeEmbedUrl(videoId, { autoplay: true });
     iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
     iframe.allowFullscreen = true;
     iframe.setAttribute("frameborder", "0");
-    const shrink = document.createElement("button");
-    shrink.type = "button";
-    shrink.className = "yt-card__shrink";
-    shrink.title = "Back to thumbnail";
-    shrink.textContent = "⤡";
-    shrink.addEventListener("pointerdown", (e) => e.stopPropagation());
-    shrink.addEventListener("click", (e) => {
+    const close = document.createElement("button");
+    close.type = "button";
+    close.textContent = "✕";
+    close.addEventListener("pointerdown", (e) => e.stopPropagation());
+    close.addEventListener("click", (e) => {
       e.stopPropagation();
-      this._setYtPlaying(card, item, false);
+      onClose();
     });
-    card.append(iframe, shrink);
+    return { iframe, close };
+  }
+
+  // "Bury" a video into any item (e.g. a photo): it stays looking exactly
+  // like its normal content until tapped, then the video plays right over
+  // it, in place — since it's the SAME item, moving it moves the video too.
+  _playEmbed(overlay, item) {
+    if (!overlay || !item.embed) return;
+    const { iframe, close } = this._buildEmbedIframe(item.embed.videoId, () => {
+      overlay.classList.remove("is-active");
+      overlay.innerHTML = "";
+    });
+    iframe.className = "embed-overlay__iframe";
+    close.className = "embed-overlay__close";
+    close.title = "Stop video";
+    overlay.append(iframe, close);
+    overlay.classList.add("is-active");
   }
 
   _layout(el, item) {
@@ -396,6 +439,7 @@ export class ItemLayer {
     const def = DEFAULT_OPACITY[item?.type] ?? 1;
     this.bar.querySelector("#itemOpacity").value = Math.round((item?.opacity ?? def) * 100);
     this.bar.querySelector('[data-act="geo"]').classList.toggle("is-on", !!item?.location);
+    this.bar.querySelector('[data-act="embed"]').classList.toggle("is-on", !!item?.embed);
     this.positionBar();
   }
   _hideBar() {
@@ -442,6 +486,41 @@ export class ItemLayer {
         save();
       });
     });
+    this.bar.querySelector('[data-act="embed"]').addEventListener("click", async (e) => {
+      const anchorEl = e.currentTarget; // capture before the await — currentTarget goes null once dispatch ends
+      const item = this._get(this.selected);
+      if (!item) return;
+      const { openEmbedPrompt } = await import("../links/links.js");
+      openEmbedPrompt(
+        anchorEl,
+        !!item.embed,
+        (videoId, title) => {
+          item.embed = { videoId, title };
+          save();
+          this._reRender(item);
+        },
+        () => {
+          delete item.embed;
+          save();
+          this._reRender(item);
+        }
+      );
+    });
+  }
+
+  // Rebuild an item's DOM in place after a data change (e.g. its embed) that
+  // isn't worth a targeted patch — re-selects it afterward if it was selected.
+  _reRender(item) {
+    const wasSelected = this.selected === item.id;
+    this.nodes.get(item.id)?.remove();
+    this.nodes.delete(item.id);
+    this._render(item);
+    this._updateBadge(item);
+    this._updateGeoBadge(item);
+    if (wasSelected) {
+      this.selected = null;
+      this.select(item.id);
+    }
   }
 
   _reflectDrawState() {
@@ -484,7 +563,7 @@ export class ItemLayer {
   }
 
   // ---------- per-item interaction ----------
-  _wire(el, item, { svg, handle, del, badge, geo, fileOpen, linkOpen }) {
+  _wire(el, item, { svg, handle, del, badge, geo, fileOpen, linkOpen, ytPoster, embedOverlay }) {
     badge.style.pointerEvents = "none";
 
     // Geotag pin — click to view/edit where this item's subject lived.
@@ -520,12 +599,17 @@ export class ItemLayer {
       });
     }
 
-    // Body: draw, move, or tap-to-toggle depending on mode/state.
+    // Body: draw, move, or tap-to-toggle depending on mode/state. A tap (no
+    // movement) on a YouTube poster, or on any item carrying a buried
+    // item.embed, plays the video — but a drag still moves the item first,
+    // since a tap is only decided by whether the pointer actually moved.
     el.addEventListener("pointerdown", (e) => {
       if (e.target === handle || e.target === del || e.target === geo || e.target === fileOpen || e.target === linkOpen) return;
       if (e.target.isContentEditable) return; // editing text
+      if (embedOverlay?.classList.contains("is-active") || e.target.closest?.(".yt-card__iframe, .embed-overlay__iframe, .yt-card__shrink, .embed-overlay__close")) return; // let the live embed / its controls handle their own input
       e.stopPropagation();
       const wasSelected = this.selected === item.id;
+      const tappedPoster = !!(ytPoster && (e.target === ytPoster || ytPoster.contains(e.target)));
       this.select(item.id);
 
       if (this.drawMode) return this._startStroke(e, el, item, svg);
@@ -542,6 +626,12 @@ export class ItemLayer {
       this.groupBg?.beginGroupDrag(affected);
       const start = { x: e.clientX, y: e.clientY, ix: item.x, iy: item.y };
       let moved = false;
+      // Dragging one of these onto the pocket (open panel, or its toggle
+      // button when closed) sends it back and removes it from the canvas —
+      // the reverse of "add to canvas". Plain shapes/text/notes have no
+      // pocket equivalent, so they're never eligible drop sources.
+      const pocketEligible = ["youtube", "link", "file", "image"].includes(item.type);
+      let overPocket = false;
 
       const onMove = (ev) => {
         const dx = (ev.clientX - start.x) / this.vp.scale;
@@ -557,16 +647,33 @@ export class ItemLayer {
         }
         this.groupBg?.groupDragTo(dx, dy);
         this.positionBar();
+        if (pocketEligible && this.getPocketDropRect) {
+          const r = this.getPocketDropRect();
+          overPocket = !!(r && ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom);
+          el.classList.toggle("is-over-pocket", overPocket);
+        }
       };
       const onUp = (ev) => {
         el.releasePointerCapture(ev.pointerId);
         el.removeEventListener("pointermove", onMove);
         el.removeEventListener("pointerup", onUp);
         this.groupBg?.endGroupDrag();
-        if (!moved && wasSelected && this._children(item.id).length) {
-          this.toggleExpand(item);
-        } else if (moved) {
+        el.classList.remove("is-over-pocket");
+        if (moved && overPocket && pocketEligible && this.onSendToPocket) {
+          this.onSendToPocket(item).then((handled) => {
+            if (handled) this.remove(item.id);
+            else save(); // pocket couldn't take it — leave it where it was dropped
+          });
+          return;
+        }
+        if (moved) {
           save();
+        } else if (wasSelected && this._children(item.id).length) {
+          this.toggleExpand(item);
+        } else if (tappedPoster && item.type === "youtube") {
+          this._setYtPlaying(el.querySelector(".yt-card"), item, true);
+        } else if (item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
+          this._playEmbed(embedOverlay, item);
         }
       };
       el.addEventListener("pointermove", onMove);

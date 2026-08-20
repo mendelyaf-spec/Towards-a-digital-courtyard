@@ -160,6 +160,40 @@ export async function setPocketLocation(id, location) {
   });
 }
 
+/**
+ * Send a canvas item back into the pocket — the reverse of "add to canvas".
+ * Returns true if it was handled (caller should then remove the item from
+ * the canvas), false if this item type has nothing sensible to return to
+ * the pocket (a plain shape, a note, text — those just aren't pocket things).
+ */
+export async function sendItemToPocket(canvasId, item) {
+  let newRecordId = null;
+  if (item.type === "youtube") {
+    newRecordId = await addLinkToPocket(canvasId, {
+      kind: "youtube", videoId: item.videoId, title: item.title,
+      thumbnailUrl: item.thumbnailUrl, url: `https://www.youtube.com/watch?v=${item.videoId}`,
+    });
+  } else if (item.type === "link") {
+    newRecordId = await addLinkToPocket(canvasId, {
+      kind: "link", title: item.name, faviconUrl: item.faviconUrl, domain: item.domain, url: item.url,
+    });
+  } else if (item.type === "file") {
+    // Placing never deletes the original pocket record, so it's likely still
+    // there — just confirm before telling the caller it's safe to drop the
+    // canvas item (otherwise the file would vanish from both places).
+    return !!(item.pocketId && (await getPocketItem(item.pocketId)));
+  } else if (item.type === "image" && item.src) {
+    // The item only carries a data URL — turn it back into a real Blob.
+    const blob = await (await fetch(item.src)).blob();
+    const file = new File([blob], "cutout.png", { type: blob.type || "image/png" });
+    newRecordId = await addToPocket(canvasId, file);
+  } else {
+    return false; // rect/circle/text/notes have no pocket equivalent
+  }
+  if (newRecordId && item.location) await setPocketLocation(newRecordId, item.location);
+  return true;
+}
+
 // ---------------- panel UI ----------------
 // Reads its markup from index.html (#pocketToggle / #pocketPanel / #pocketGrid
 // / #pocketAdd / #pocketPreview*) the same way ItemLayer reads #itemBar.
@@ -225,6 +259,12 @@ export class PocketPanel {
   close() {
     this.panel.hidden = true;
     this.toggleBtn.hidden = false;
+  }
+
+  /** The current drop target for "drag an item back into the pocket" — the
+   *  open panel if it's showing, otherwise the toggle button itself. */
+  getDropRect() {
+    return this.panel.hidden ? this.toggleBtn.getBoundingClientRect() : this.panel.getBoundingClientRect();
   }
 
   async refresh() {

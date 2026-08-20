@@ -118,3 +118,71 @@ export function closeLinkPrompt() {
   openPop.el.remove();
   openPop = null;
 }
+
+// ---------------- "bury a video in this item" popover ----------------
+// Same visual language as the link popover, but YouTube-only (an item can
+// only carry a playable embed, not a bookmark) and offers a "remove" action.
+
+/** @param {boolean} hasExisting @param {(videoId:string,title:string)=>void} onSubmit @param {()=>void} onRemove */
+export function openEmbedPrompt(anchorEl, hasExisting, onSubmit, onRemove) {
+  closeLinkPrompt();
+  const pop = document.createElement("div");
+  pop.className = "link-pop";
+  pop.innerHTML = `
+    <label class="link-pop__label">${hasExisting ? "change the buried video" : "bury a YouTube video in this item"}</label>
+    <input type="text" class="link-pop__url" placeholder="https://youtube.com/watch?v=…" />
+    <p class="link-pop__err" hidden>only YouTube links can be buried in an item</p>
+    <div class="link-pop__actions" style="justify-content:space-between;">
+      ${hasExisting ? '<button type="button" class="link-pop__remove" data-act="remove">remove</button>' : "<span></span>"}
+      <span style="display:flex; gap:8px;">
+        <button type="button" class="link-pop__cancel" data-act="cancel">cancel</button>
+        <button type="button" class="link-pop__add" data-act="add">save</button>
+      </span>
+    </div>`;
+  document.body.appendChild(pop);
+
+  const r = anchorEl.getBoundingClientRect();
+  const popW = pop.offsetWidth || 260;
+  const popH = pop.offsetHeight || 150;
+  let top = r.bottom + 8;
+  if (top + popH > window.innerHeight - 8) top = r.top - popH - 8;
+  pop.style.left = Math.min(Math.max(r.left, 8), window.innerWidth - popW - 8) + "px";
+  pop.style.top = Math.min(Math.max(top, 8), window.innerHeight - popH - 8) + "px";
+
+  const input = pop.querySelector(".link-pop__url");
+  const err = pop.querySelector(".link-pop__err");
+  const addBtn = pop.querySelector('[data-act="add"]');
+  input.focus();
+
+  const submit = async () => {
+    err.hidden = true;
+    addBtn.disabled = true;
+    addBtn.textContent = "saving…";
+    const videoId = parseYouTubeId(input.value);
+    if (!videoId) {
+      err.hidden = false;
+      addBtn.disabled = false;
+      addBtn.textContent = "save";
+      return;
+    }
+    const title = await fetchYouTubeTitle(videoId).catch(() => null);
+    onSubmit(videoId, title || "");
+    closeLinkPrompt();
+  };
+  addBtn.addEventListener("click", submit);
+  pop.querySelector('[data-act="cancel"]').addEventListener("click", closeLinkPrompt);
+  pop.querySelector('[data-act="remove"]')?.addEventListener("click", () => {
+    onRemove();
+    closeLinkPrompt();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") submit();
+    if (e.key === "Escape") closeLinkPrompt();
+  });
+
+  const onOutside = (e) => {
+    if (!pop.contains(e.target) && e.target !== anchorEl) closeLinkPrompt();
+  };
+  setTimeout(() => document.addEventListener("pointerdown", onOutside), 0);
+  openPop = { el: pop, cleanup: () => document.removeEventListener("pointerdown", onOutside) };
+}
