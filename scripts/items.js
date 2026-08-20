@@ -14,8 +14,8 @@ const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
 
 // Base fill color (as r,g,b) per item type, matching the CSS defaults, so
 // the opacity slider can fade the fill without touching its content.
-const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", text: "255,253,247", file: "239,231,210" };
-const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 0.82, image: 1, file: 1, youtube: 1 };
+const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", text: "255,253,247", file: "239,231,210", link: "251,248,242" };
+const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 0.82, image: 1, file: 1, youtube: 1, link: 1 };
 
 export class ItemLayer {
   constructor(worldEl, viewport) {
@@ -99,10 +99,11 @@ export class ItemLayer {
   // For type 'file' (a document/video placed from the pocket), pass
   // { pocketId, name, mime, location } instead of src/text.
   // For type 'youtube', pass { videoId, title, thumbnailUrl, location }.
-  add(type, { src, w, h, text, parentId, near, pocketId, name, mime, location, videoId, title, thumbnailUrl } = {}) {
+  // For type 'link' (any other URL), pass { url, name, domain, faviconUrl, location }.
+  add(type, { src, w, h, text, parentId, near, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl } = {}) {
     // Type-specific defaults must be resolved BEFORE the generic 160x160
     // fallback below, or `w || 160` there clobbers them and every text/file/
-    // youtube item silently reverts to a square 160x160 (a real bug we hit).
+    // youtube/link item silently reverts to a square 160x160 (a real bug we hit).
     if (type === "text") {
       w = w || 200;
       h = h || 60;
@@ -112,6 +113,9 @@ export class ItemLayer {
     } else if (type === "youtube") {
       w = w || 240;
       h = h || 176;
+    } else if (type === "link") {
+      w = w || 200;
+      h = h || 68;
     }
     let x, y;
     if (near) {
@@ -135,6 +139,7 @@ export class ItemLayer {
       ...(type === "text" ? { text: text ?? "", color: this.color } : {}),
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
+      ...(type === "link" ? { url, name: name || domain || "link", domain: domain || "", faviconUrl: faviconUrl || "" } : {}),
       ...(parentId ? { parentId } : {}),
       ...(location ? { location } : {}),
     });
@@ -184,6 +189,30 @@ export class ItemLayer {
       ytCard.append(this._buildYtPoster(item), ytTitleEl(item));
       el.appendChild(ytCard);
     }
+    let linkOpen = null;
+    if (item.type === "link") {
+      const card = document.createElement("div");
+      card.className = "link-card";
+      const favicon = document.createElement("div");
+      favicon.className = "link-card__favicon";
+      if (item.faviconUrl) favicon.style.backgroundImage = `url(${item.faviconUrl})`;
+      else favicon.textContent = "🔗";
+      const text = document.createElement("div");
+      text.className = "link-card__text";
+      const title = document.createElement("div");
+      title.className = "link-card__title";
+      title.textContent = item.name || item.domain || "link";
+      const domain = document.createElement("div");
+      domain.className = "link-card__domain";
+      domain.textContent = item.domain || "";
+      text.append(title, domain);
+      linkOpen = document.createElement("button");
+      linkOpen.type = "button";
+      linkOpen.className = "link-card__open";
+      linkOpen.textContent = "open";
+      card.append(favicon, text, linkOpen);
+      el.appendChild(card);
+    }
 
     // Geotag pin — shown on any item with a saved location.
     const geo = document.createElement("button");
@@ -218,7 +247,7 @@ export class ItemLayer {
     el.appendChild(handle);
 
     this._applyFill(el, item);
-    this._wire(el, item, { svg, handle, del, badge, geo, fileOpen });
+    this._wire(el, item, { svg, handle, del, badge, geo, fileOpen, linkOpen });
     this.world.appendChild(el);
     this.nodes.set(item.id, el);
     this._updateBadge(item);
@@ -455,7 +484,7 @@ export class ItemLayer {
   }
 
   // ---------- per-item interaction ----------
-  _wire(el, item, { svg, handle, del, badge, geo, fileOpen }) {
+  _wire(el, item, { svg, handle, del, badge, geo, fileOpen, linkOpen }) {
     badge.style.pointerEvents = "none";
 
     // Geotag pin — click to view/edit where this item's subject lived.
@@ -482,9 +511,18 @@ export class ItemLayer {
       });
     }
 
+    // Link cards (any saved URL) open directly — no blob to resolve, it's just a link.
+    if (linkOpen) {
+      linkOpen.addEventListener("pointerdown", (e) => e.stopPropagation());
+      linkOpen.addEventListener("click", (e) => {
+        e.stopPropagation();
+        window.open(item.url, "_blank", "noopener");
+      });
+    }
+
     // Body: draw, move, or tap-to-toggle depending on mode/state.
     el.addEventListener("pointerdown", (e) => {
-      if (e.target === handle || e.target === del || e.target === geo || e.target === fileOpen) return;
+      if (e.target === handle || e.target === del || e.target === geo || e.target === fileOpen || e.target === linkOpen) return;
       if (e.target.isContentEditable) return; // editing text
       e.stopPropagation();
       const wasSelected = this.selected === item.id;

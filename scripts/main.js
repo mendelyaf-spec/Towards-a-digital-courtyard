@@ -6,7 +6,7 @@ import { ItemLayer } from "./items.js";
 import { Studio } from "./studio.js";
 import { BackgroundLayer } from "../background/background.js";
 import { PocketPanel, getPocketBlobURL } from "../pocket/pocket.js";
-import { openYoutubePrompt, closeYoutubePrompt, youtubeThumbnail, fetchYouTubeTitle } from "../youtube/youtube.js";
+import { openLinkPrompt, closeLinkPrompt } from "../links/links.js";
 import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
 import { renderCourtyard } from "./courtyard.js";
@@ -130,6 +130,14 @@ const pocket = new PocketPanel({
         thumbnailUrl: record.thumbnailUrl,
         location: record.location || undefined,
       });
+    } else if (record.kind === "link") {
+      layer.add("link", {
+        url: record.url,
+        name: record.name,
+        domain: record.domain,
+        faviconUrl: record.faviconUrl,
+        location: record.location || undefined,
+      });
     } else {
       layer.add("file", {
         pocketId: record.id,
@@ -141,12 +149,15 @@ const pocket = new PocketPanel({
   },
 });
 
-// ---------- youtube: embed a video directly, no pocket needed ----------
-const youtubeBtn = document.getElementById("youtubeBtn");
-youtubeBtn.addEventListener("click", () => {
-  openYoutubePrompt(youtubeBtn, async (videoId, url) => {
-    const title = await fetchYouTubeTitle(videoId); // best-effort; fine if it comes back null
-    layer.add("youtube", { videoId, title: title || "", thumbnailUrl: youtubeThumbnail(videoId) });
+// ---------- links: embed a video or drop a bookmark directly, no pocket needed ----------
+const linkBtn = document.getElementById("linkBtn");
+linkBtn.addEventListener("click", () => {
+  openLinkPrompt(linkBtn, (link) => {
+    if (link.kind === "youtube") {
+      layer.add("youtube", { videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl });
+    } else {
+      layer.add("link", { url: link.url, name: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl });
+    }
   });
 });
 
@@ -165,7 +176,7 @@ function showView(name) {
   studio.close();
   pocket.close();
   openPhotoMenu(false);
-  closeYoutubePrompt();
+  closeLinkPrompt();
   homeView.hidden = name !== "home";
   canvasView.hidden = name !== "canvas";
   courtyardView.hidden = name !== "courtyard";

@@ -13,7 +13,8 @@
 
 import { newId } from "../scripts/store.js";
 import { openGeotagPopover, formatCoords } from "../geotag/geotag.js";
-import { openYoutubePrompt, youtubeThumbnail, youtubeEmbedUrl, fetchYouTubeTitle } from "../youtube/youtube.js";
+import { youtubeEmbedUrl } from "../youtube/youtube.js";
+import { openLinkPrompt } from "../links/links.js";
 
 const DB_NAME = "dc-pocket";
 const STORE = "items";
@@ -72,19 +73,31 @@ export async function addToPocket(canvasId, file) {
   return record.id;
 }
 
-/** Add a YouTube link to a canvas's pocket. No blob — just the id/title/thumbnail. */
-export async function addLinkToPocket(canvasId, { videoId, title, thumbnailUrl, url }) {
-  const record = {
-    id: newId(),
-    canvasId,
-    kind: "youtube",
-    videoId,
-    name: title || "YouTube video",
-    url,
-    thumbnailUrl,
-    createdAt: Date.now(),
-    location: null,
-  };
+/**
+ * Add a link (from links.js's resolveLink) to a canvas's pocket — YouTube or
+ * any other site. No blob, just the small bits needed to show and open it.
+ */
+export async function addLinkToPocket(canvasId, link) {
+  const record =
+    link.kind === "youtube"
+      ? {
+          id: newId(), canvasId, kind: "youtube",
+          videoId: link.videoId,
+          name: link.title || "YouTube video",
+          url: link.url,
+          thumbnailUrl: link.thumbnailUrl,
+          createdAt: Date.now(),
+          location: null,
+        }
+      : {
+          id: newId(), canvasId, kind: "link",
+          name: link.title || link.domain,
+          url: link.url,
+          domain: link.domain,
+          faviconUrl: link.faviconUrl,
+          createdAt: Date.now(),
+          location: null,
+        };
   const db = await openDB();
   await new Promise((resolve, reject) => {
     const tx = db.transaction(STORE, "readwrite");
@@ -187,9 +200,8 @@ export class PocketPanel {
     });
 
     this.addLinkBtn.addEventListener("click", () => {
-      openYoutubePrompt(this.addLinkBtn, async (videoId, url) => {
-        const title = await fetchYouTubeTitle(videoId); // best-effort; null offline/blocked
-        await addLinkToPocket(this.canvasId, { videoId, title, thumbnailUrl: youtubeThumbnail(videoId), url });
+      openLinkPrompt(this.addLinkBtn, async (link) => {
+        await addLinkToPocket(this.canvasId, link);
         this.refresh();
       });
     });
@@ -262,6 +274,11 @@ export class PocketPanel {
   async _preview(id) {
     const rec = await getPocketItem(id);
     if (!rec) return;
+    if (rec.kind === "link") {
+      // Most sites block being framed at all — a bookmark just opens.
+      window.open(rec.url, "_blank", "noopener");
+      return;
+    }
     if (rec.kind === "youtube") {
       this.previewBody.innerHTML = `<iframe class="pocket-preview__yt" src="${youtubeEmbedUrl(rec.videoId, { autoplay: true })}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen frameborder="0"></iframe>`;
       this.preview.hidden = false;
@@ -287,14 +304,18 @@ export class PocketPanel {
 }
 
 function cardHTML(meta) {
-  const icon = meta.kind === "video" ? "🎬" : meta.kind === "doc" ? "📄" : meta.kind === "youtube" ? "▶" : "🖼";
-  const hasInlineThumb = meta.kind === "youtube" && meta.thumbnailUrl;
+  const icon = meta.kind === "video" ? "🎬" : meta.kind === "doc" ? "📄" : meta.kind === "youtube" ? "▶" : meta.kind === "link" ? "🔗" : "🖼";
+  const isLink = meta.kind === "link";
+  const hasInlineThumb = (meta.kind === "youtube" || isLink) && (meta.thumbnailUrl || meta.faviconUrl);
+  const thumbStyle = isLink
+    ? meta.faviconUrl ? `style="background-image:url(${meta.faviconUrl});background-size:36px 36px;background-repeat:no-repeat;"` : ""
+    : hasInlineThumb ? `style="background-image:url(${meta.thumbnailUrl})"` : "";
   return `
-    <div class="pocket-card" data-id="${meta.id}">
-      <button type="button" class="pocket-card__thumb" data-kind="${meta.kind}" data-act="view"
-        ${hasInlineThumb ? `style="background-image:url(${meta.thumbnailUrl})"` : ""}
+    <div class="pocket-card" data-id="${meta.id}" data-kind="${meta.kind}">
+      <button type="button" class="pocket-card__thumb" data-kind="${meta.kind}" data-act="view" ${thumbStyle}
         >${meta.kind === "photo" || hasInlineThumb ? "" : icon}</button>
       <div class="pocket-card__name" title="${escapeHtml(meta.name)}">${escapeHtml(meta.name)}</div>
+      ${isLink ? `<div class="pocket-card__domain">${escapeHtml(meta.domain || "")}</div>` : ""}
       ${meta.location
         ? `<button type="button" class="pocket-card__geo" data-act="geo">📍 ${escapeHtml(meta.location.label || formatCoords(meta.location))}</button>`
         : `<button type="button" class="pocket-card__geo pocket-card__geo--empty" data-act="geo">📍 tag location</button>`}
