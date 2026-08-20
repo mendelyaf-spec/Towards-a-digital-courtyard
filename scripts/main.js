@@ -6,6 +6,7 @@ import { ItemLayer } from "./items.js";
 import { Studio } from "./studio.js";
 import { BackgroundLayer } from "../background/background.js";
 import { PocketPanel, getPocketBlobURL } from "../pocket/pocket.js";
+import { openYoutubePrompt, closeYoutubePrompt, youtubeThumbnail, fetchYouTubeTitle } from "../youtube/youtube.js";
 import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
 import { renderCourtyard } from "./courtyard.js";
@@ -122,6 +123,13 @@ const pocket = new PocketPanel({
       await studio.open(record.blob, (dataURL, w, h) =>
         placeCutout(dataURL, w, h, record.location ? { location: record.location } : {})
       );
+    } else if (record.kind === "youtube") {
+      layer.add("youtube", {
+        videoId: record.videoId,
+        title: record.name,
+        thumbnailUrl: record.thumbnailUrl,
+        location: record.location || undefined,
+      });
     } else {
       layer.add("file", {
         pocketId: record.id,
@@ -131,6 +139,15 @@ const pocket = new PocketPanel({
       });
     }
   },
+});
+
+// ---------- youtube: embed a video directly, no pocket needed ----------
+const youtubeBtn = document.getElementById("youtubeBtn");
+youtubeBtn.addEventListener("click", () => {
+  openYoutubePrompt(youtubeBtn, async (videoId, url) => {
+    const title = await fetchYouTubeTitle(videoId); // best-effort; fine if it comes back null
+    layer.add("youtube", { videoId, title: title || "", thumbnailUrl: youtubeThumbnail(videoId) });
+  });
 });
 
 document.getElementById("resetView").addEventListener("click", () => viewport.reset());
@@ -148,6 +165,7 @@ function showView(name) {
   studio.close();
   pocket.close();
   openPhotoMenu(false);
+  closeYoutubePrompt();
   homeView.hidden = name !== "home";
   canvasView.hidden = name !== "canvas";
   courtyardView.hidden = name !== "courtyard";

@@ -132,8 +132,15 @@ export function openGeotagPopover(anchorEl, current, onChange) {
   }
 
   const r = anchorEl.getBoundingClientRect();
-  pop.style.left = Math.min(r.left, window.innerWidth - 260) + "px";
-  pop.style.top = r.bottom + 8 + "px";
+  const popW = pop.offsetWidth || 240;
+  const popH = pop.offsetHeight || 160;
+  // Prefer opening below the anchor; flip above it if there isn't room
+  // (the geo pin sits at an item's top-left, but the item bar's geotag
+  // button can be near the bottom toolbar), then clamp fully on-screen.
+  let top = r.bottom + 8;
+  if (top + popH > window.innerHeight - 8) top = r.top - popH - 8;
+  pop.style.left = Math.min(Math.max(r.left, 8), window.innerWidth - popW - 8) + "px";
+  pop.style.top = Math.min(Math.max(top, 8), window.innerHeight - popH - 8) + "px";
 
   pop.querySelector('[data-act="device"]').addEventListener("click", () => {
     if (!navigator.geolocation) { alert("Location isn't available in this browser."); return; }

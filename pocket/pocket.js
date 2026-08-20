@@ -13,6 +13,7 @@
 
 import { newId } from "../scripts/store.js";
 import { openGeotagPopover, formatCoords } from "../geotag/geotag.js";
+import { openYoutubePrompt, youtubeThumbnail, youtubeEmbedUrl, fetchYouTubeTitle } from "../youtube/youtube.js";
 
 const DB_NAME = "dc-pocket";
 const STORE = "items";
@@ -60,6 +61,29 @@ export async function addToPocket(canvasId, file) {
     blob: file,
     createdAt: Date.now(),
     location,
+  };
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(record);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+  return record.id;
+}
+
+/** Add a YouTube link to a canvas's pocket. No blob — just the id/title/thumbnail. */
+export async function addLinkToPocket(canvasId, { videoId, title, thumbnailUrl, url }) {
+  const record = {
+    id: newId(),
+    canvasId,
+    kind: "youtube",
+    videoId,
+    name: title || "YouTube video",
+    url,
+    thumbnailUrl,
+    createdAt: Date.now(),
+    location: null,
   };
   const db = await openDB();
   await new Promise((resolve, reject) => {
@@ -137,6 +161,7 @@ export class PocketPanel {
     this.panel = document.getElementById("pocketPanel");
     this.grid = document.getElementById("pocketGrid");
     this.addInput = document.getElementById("pocketAdd");
+    this.addLinkBtn = document.getElementById("pocketAddLink");
     this.preview = document.getElementById("pocketPreview");
     this.previewBody = document.getElementById("pocketPreviewBody");
 
@@ -159,6 +184,14 @@ export class PocketPanel {
         }
       }
       this.refresh();
+    });
+
+    this.addLinkBtn.addEventListener("click", () => {
+      openYoutubePrompt(this.addLinkBtn, async (videoId, url) => {
+        const title = await fetchYouTubeTitle(videoId); // best-effort; null offline/blocked
+        await addLinkToPocket(this.canvasId, { videoId, title, thumbnailUrl: youtubeThumbnail(videoId), url });
+        this.refresh();
+      });
     });
 
     this.grid.addEventListener("click", (e) => this._onGridClick(e));
@@ -229,6 +262,11 @@ export class PocketPanel {
   async _preview(id) {
     const rec = await getPocketItem(id);
     if (!rec) return;
+    if (rec.kind === "youtube") {
+      this.previewBody.innerHTML = `<iframe class="pocket-preview__yt" src="${youtubeEmbedUrl(rec.videoId, { autoplay: true })}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen frameborder="0"></iframe>`;
+      this.preview.hidden = false;
+      return;
+    }
     const url = URL.createObjectURL(rec.blob);
     this.objectUrls.add(url);
     this.previewBody.innerHTML =
@@ -249,10 +287,13 @@ export class PocketPanel {
 }
 
 function cardHTML(meta) {
-  const icon = meta.kind === "video" ? "🎬" : meta.kind === "doc" ? "📄" : "🖼";
+  const icon = meta.kind === "video" ? "🎬" : meta.kind === "doc" ? "📄" : meta.kind === "youtube" ? "▶" : "🖼";
+  const hasInlineThumb = meta.kind === "youtube" && meta.thumbnailUrl;
   return `
     <div class="pocket-card" data-id="${meta.id}">
-      <button type="button" class="pocket-card__thumb" data-kind="${meta.kind}" data-act="view">${meta.kind === "photo" ? "" : icon}</button>
+      <button type="button" class="pocket-card__thumb" data-kind="${meta.kind}" data-act="view"
+        ${hasInlineThumb ? `style="background-image:url(${meta.thumbnailUrl})"` : ""}
+        >${meta.kind === "photo" || hasInlineThumb ? "" : icon}</button>
       <div class="pocket-card__name" title="${escapeHtml(meta.name)}">${escapeHtml(meta.name)}</div>
       ${meta.location
         ? `<button type="button" class="pocket-card__geo" data-act="geo">📍 ${escapeHtml(meta.location.label || formatCoords(meta.location))}</button>`

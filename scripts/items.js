@@ -7,6 +7,7 @@
 
 import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js";
 import { openGeotagPopover, formatCoords } from "../geotag/geotag.js";
+import { youtubeEmbedUrl } from "../youtube/youtube.js";
 
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
@@ -14,7 +15,7 @@ const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
 // Base fill color (as r,g,b) per item type, matching the CSS defaults, so
 // the opacity slider can fade the fill without touching its content.
 const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", text: "255,253,247", file: "239,231,210" };
-const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 0.82, image: 1, file: 1 };
+const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 0.82, image: 1, file: 1, youtube: 1 };
 
 export class ItemLayer {
   constructor(worldEl, viewport) {
@@ -97,7 +98,21 @@ export class ItemLayer {
   // ---------- creating ----------
   // For type 'file' (a document/video placed from the pocket), pass
   // { pocketId, name, mime, location } instead of src/text.
-  add(type, { src, w, h, text, parentId, near, pocketId, name, mime, location } = {}) {
+  // For type 'youtube', pass { videoId, title, thumbnailUrl, location }.
+  add(type, { src, w, h, text, parentId, near, pocketId, name, mime, location, videoId, title, thumbnailUrl } = {}) {
+    // Type-specific defaults must be resolved BEFORE the generic 160x160
+    // fallback below, or `w || 160` there clobbers them and every text/file/
+    // youtube item silently reverts to a square 160x160 (a real bug we hit).
+    if (type === "text") {
+      w = w || 200;
+      h = h || 60;
+    } else if (type === "file") {
+      w = w || 180;
+      h = h || 90;
+    } else if (type === "youtube") {
+      w = w || 240;
+      h = h || 176;
+    }
     let x, y;
     if (near) {
       x = near.x;
@@ -106,16 +121,8 @@ export class ItemLayer {
       const c = this.vp.centerWorld();
       w = w || 160;
       h = h || 160;
-      x = Math.round(c.x - (w || 160) / 2);
-      y = Math.round(c.y - (h || 160) / 2);
-    }
-    if (type === "text") {
-      w = w || 200;
-      h = h || 60;
-    }
-    if (type === "file") {
-      w = w || 180;
-      h = h || 90;
+      x = Math.round(c.x - w / 2);
+      y = Math.round(c.y - h / 2);
     }
     const item = addItem({
       id: newId(),
@@ -127,6 +134,7 @@ export class ItemLayer {
       ...(src ? { src } : {}),
       ...(type === "text" ? { text: text ?? "", color: this.color } : {}),
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
+      ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
       ...(parentId ? { parentId } : {}),
       ...(location ? { location } : {}),
     });
@@ -169,6 +177,12 @@ export class ItemLayer {
       card.querySelector(".file-card__name").textContent = item.name || "file";
       el.appendChild(card);
       fileOpen = card.querySelector(".file-card__open");
+    }
+    if (item.type === "youtube") {
+      const ytCard = document.createElement("div");
+      ytCard.className = "yt-card";
+      ytCard.append(this._buildYtPoster(item), ytTitleEl(item));
+      el.appendChild(ytCard);
     }
 
     // Geotag pin — shown on any item with a saved location.
@@ -234,6 +248,51 @@ export class ItemLayer {
     }
     const rgb = FILL_RGB[item.type];
     if (rgb) el.style.backgroundColor = `rgba(${rgb}, ${op})`;
+  }
+
+  // A YouTube item shows a poster (its thumbnail) until clicked, then swaps
+  // to a live iframe — an iframe would otherwise swallow every pointer event
+  // over the whole box, making the item impossible to drag/select while idle.
+  _buildYtPoster(item) {
+    const poster = document.createElement("button");
+    poster.type = "button";
+    poster.className = "yt-card__poster";
+    if (item.thumbnailUrl) poster.style.backgroundImage = `url(${item.thumbnailUrl})`;
+    const play = document.createElement("span");
+    play.className = "yt-card__play";
+    play.textContent = "▶";
+    poster.appendChild(play);
+    poster.addEventListener("pointerdown", (e) => e.stopPropagation());
+    poster.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._setYtPlaying(poster.closest(".yt-card"), item, true);
+    });
+    return poster;
+  }
+
+  _setYtPlaying(card, item, playing) {
+    card.innerHTML = "";
+    if (!playing) {
+      card.append(this._buildYtPoster(item), ytTitleEl(item));
+      return;
+    }
+    const iframe = document.createElement("iframe");
+    iframe.src = youtubeEmbedUrl(item.videoId, { autoplay: true });
+    iframe.className = "yt-card__iframe";
+    iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    iframe.allowFullscreen = true;
+    iframe.setAttribute("frameborder", "0");
+    const shrink = document.createElement("button");
+    shrink.type = "button";
+    shrink.className = "yt-card__shrink";
+    shrink.title = "Back to thumbnail";
+    shrink.textContent = "⤡";
+    shrink.addEventListener("pointerdown", (e) => e.stopPropagation());
+    shrink.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._setYtPlaying(card, item, false);
+    });
+    card.append(iframe, shrink);
   }
 
   _layout(el, item) {
@@ -583,6 +642,14 @@ export class ItemLayer {
     if (parentId) this._updateBadge(this._get(parentId));
     this.onRemove?.(removed); // drop any backgrounds bound to this subtree
   }
+}
+
+// ---- youtube helpers ----
+function ytTitleEl(item) {
+  const t = document.createElement("div");
+  t.className = "yt-card__title";
+  t.textContent = item.title || "YouTube video";
+  return t;
 }
 
 // ---- stroke helpers ----

@@ -1,0 +1,108 @@
+/* youtube/youtube.css — the "paste a link" popover + the embedded card. */
+
+.yt-pop {
+  position: fixed;
+  z-index: 50;
+  width: 260px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.yt-pop__label { font-size: 12px; font-weight: 600; color: var(--ink); }
+.yt-pop__url {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 8px 9px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--ink);
+  width: 100%;
+}
+.yt-pop__url--error, .yt-pop__url:focus.yt-pop__url--error { border-color: #b04b4b; }
+.yt-pop__err { margin: 0; font-size: 11px; color: #b04b4b; }
+.yt-pop__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.yt-pop__cancel {
+  border: none; background: transparent; color: var(--ink);
+  font-size: 12.5px; cursor: pointer; padding: 6px 8px;
+}
+.yt-pop__add {
+  border: none; background: var(--accent); color: var(--accent-ink);
+  font-weight: 600; font-size: 12.5px; border-radius: 8px;
+  padding: 7px 14px; cursor: pointer;
+}
+
+/* ---- the on-canvas card ---- */
+/* Rounding + clipping live on .yt-card, NOT on .item--youtube: the delete
+   button, resize handle, geo pin, and note badge all poke outside the item's
+   own box by design (negative offsets) — overflow:hidden on the item itself
+   would silently clip them away. They'd still exist in the DOM with a
+   plausible bounding box, just never actually painted or clickable there. */
+.item--youtube { background: #17181a; border-radius: 10px; }
+.yt-card {
+  position: relative; width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  border-radius: 10px; overflow: hidden;
+}
+.yt-card__poster {
+  flex: 1; min-height: 0;
+  border: none; padding: 0; margin: 0;
+  width: 100%;
+  background-color: #0f0f10;
+  background-size: cover;
+  background-position: center;
+  display: grid; place-items: center;
+  cursor: pointer;
+}
+.yt-card__play {
+  width: 44px; height: 44px;
+  border-radius: 50%;
+  background: rgba(20, 18, 14, 0.72);
+  color: #fff;
+  display: grid; place-items: center;
+  font-size: 16px;
+  padding-left: 3px; /* optically center the triangle */
+  box-shadow: 0 2px 10px rgba(0,0,0,.35);
+}
+.yt-card__title {
+  flex: none;
+  font-size: 12px;
+  color: #eee;
+  padding: 6px 8px;
+  background: #101012;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.yt-card__iframe { flex: 1; width: 100%; border: none; }
+.yt-card__shrink {
+  position: absolute;
+  top: 6px; right: 6px;
+  z-index: 2;
+  border: none;
+  background: rgba(15, 15, 16, 0.8);
+  color: #fff;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+/* Toolbar glyph for the youtube tool button */
+.tool__glyph--youtube {
+  border: 2.5px solid var(--ink);
+  border-radius: 6px;
+  position: relative;
+}
+.tool__glyph--youtube::after {
+  content: "";
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-40%, -50%);
+  border-style: solid;
+  border-width: 5px 0 5px 8px;
+  border-color: transparent transparent transparent var(--ink);
+}

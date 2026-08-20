@@ -19,6 +19,7 @@
   <link rel="stylesheet" href="background/background.css" />
   <link rel="stylesheet" href="geotag/geotag.css" />
   <link rel="stylesheet" href="pocket/pocket.css" />
+  <link rel="stylesheet" href="youtube/youtube.css" />
 </head>
 <body>
   <!-- HOME: your canvases + courtyards (rendered by home.js) -->
@@ -53,6 +54,11 @@
       <input id="photoCamera" class="visually-hidden" type="file" accept="image/*" capture="environment" />
       <input id="photoUpload" class="visually-hidden" type="file" accept="image/*" />
       <span class="toolbar__sep" aria-hidden="true"></span>
+      <button class="tool tool--youtube" id="youtubeBtn" type="button" title="Embed a YouTube video">
+        <span class="tool__glyph tool__glyph--youtube"></span>
+        <span class="tool__label">youtube</span>
+      </button>
+      <span class="toolbar__sep" aria-hidden="true"></span>
       <button class="tool tool--bg" id="bgToggle" type="button" title="Background mode: shapes you place become backgrounds" aria-pressed="false">
         <span class="tool__glyph tool__glyph--bg"></span>
         <span class="tool__label">background</span>
@@ -78,6 +84,7 @@
         <input id="pocketAdd" class="visually-hidden" type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx,.txt" />
         + add file
       </label>
+      <button id="pocketAddLink" class="pocket-panel__addlink" type="button">▶ + add YouTube link</button>
       <div id="pocketGrid" class="pocket-grid"></div>
     </aside>
     <div id="pocketPreview" class="pocket-preview" hidden>
