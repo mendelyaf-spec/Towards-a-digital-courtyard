@@ -225,6 +225,32 @@ html, body {
   word-break: break-word;
   cursor: text;
 }
+.item--file {
+  background: rgba(239, 231, 210, 1);
+  border: 1px solid #d9cead;
+  border-radius: 10px;
+}
+.file-card {
+  width: 100%; height: 100%;
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 12px;
+}
+.file-card__icon { font-size: 22px; flex: none; }
+.file-card__name {
+  flex: 1; min-width: 0;
+  font-size: 13px; font-weight: 500; color: var(--ink);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.file-card__open {
+  flex: none;
+  border: none; background: var(--accent); color: var(--accent-ink);
+  font-size: 11.5px; font-weight: 600;
+  border-radius: 7px; padding: 6px 10px; cursor: pointer;
+}
+
+/* Geotag pin: hidden until an item actually has a location. */
+.geo-badge { display: none; }
+
 .text-body:empty::before {
   content: "type…";
   opacity: .4;

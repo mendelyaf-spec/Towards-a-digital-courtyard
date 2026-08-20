@@ -6,14 +6,15 @@
 // full items, so the nesting goes as deep as you like.
 
 import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js";
+import { openGeotagPopover, formatCoords } from "../geotag/geotag.js";
 
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
 
 // Base fill color (as r,g,b) per item type, matching the CSS defaults, so
 // the opacity slider can fade the fill without touching its content.
-const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", text: "255,253,247" };
-const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 0.82, image: 1 };
+const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", text: "255,253,247", file: "239,231,210" };
+const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 0.82, image: 1, file: 1 };
 
 export class ItemLayer {
   constructor(worldEl, viewport) {
@@ -27,6 +28,7 @@ export class ItemLayer {
     this.groupBg = null;      // background layer, so grouped backgrounds travel with groups
     this.onVisibility = null; // hook: fired when expand/collapse changes what's visible
     this.onRemove = null;     // hook: fired with the ids removed by a delete
+    this.resolveFileUrl = null; // hook: async(pocketId) -> blob URL, for 'file' items (docs/videos from the pocket)
 
     this.bar = document.getElementById("itemBar");
     this._wireBar();
@@ -93,7 +95,9 @@ export class ItemLayer {
   }
 
   // ---------- creating ----------
-  add(type, { src, w, h, text, parentId, near } = {}) {
+  // For type 'file' (a document/video placed from the pocket), pass
+  // { pocketId, name, mime, location } instead of src/text.
+  add(type, { src, w, h, text, parentId, near, pocketId, name, mime, location } = {}) {
     let x, y;
     if (near) {
       x = near.x;
@@ -109,6 +113,10 @@ export class ItemLayer {
       w = w || 200;
       h = h || 60;
     }
+    if (type === "file") {
+      w = w || 180;
+      h = h || 90;
+    }
     const item = addItem({
       id: newId(),
       type,
@@ -118,7 +126,9 @@ export class ItemLayer {
       h: h || 160,
       ...(src ? { src } : {}),
       ...(type === "text" ? { text: text ?? "", color: this.color } : {}),
+      ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(parentId ? { parentId } : {}),
+      ...(location ? { location } : {}),
     });
     const el = this._render(item);
     this._applyVisibility();
@@ -147,6 +157,27 @@ export class ItemLayer {
       t.style.color = item.color || this.color;
       el.appendChild(t);
     }
+    let fileOpen = null;
+    if (item.type === "file") {
+      const card = document.createElement("div");
+      card.className = "file-card";
+      const isVideo = (item.mime || "").startsWith("video/");
+      card.innerHTML = `
+        <span class="file-card__icon">${isVideo ? "🎬" : "📄"}</span>
+        <span class="file-card__name"></span>
+        <button type="button" class="file-card__open">open</button>`;
+      card.querySelector(".file-card__name").textContent = item.name || "file";
+      el.appendChild(card);
+      fileOpen = card.querySelector(".file-card__open");
+    }
+
+    // Geotag pin — shown on any item with a saved location.
+    const geo = document.createElement("button");
+    geo.type = "button";
+    geo.className = "geo-badge";
+    geo.title = "Where this lived";
+    geo.textContent = "📍";
+    el.appendChild(geo);
 
     // Ink overlay (freehand drawing). Stretches with the item.
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -173,11 +204,23 @@ export class ItemLayer {
     el.appendChild(handle);
 
     this._applyFill(el, item);
-    this._wire(el, item, { svg, handle, del, badge });
+    this._wire(el, item, { svg, handle, del, badge, geo, fileOpen });
     this.world.appendChild(el);
     this.nodes.set(item.id, el);
     this._updateBadge(item);
+    this._updateGeoBadge(item);
     return el;
+  }
+
+  _updateGeoBadge(item) {
+    const el = this.nodes.get(item.id);
+    if (!el) return;
+    const geo = el.querySelector(".geo-badge");
+    if (!geo) return;
+    geo.style.display = item.location ? "" : "none";
+    geo.title = item.location
+      ? `${item.location.label || "Where this lived"} — ${formatCoords(item.location)}`
+      : "Where this lived";
   }
 
   // Fades just the shape's fill / wash — text, ink, image, and controls
@@ -264,6 +307,7 @@ export class ItemLayer {
     this.bar.querySelector("#inkColor").value = item?.color || this.color;
     const def = DEFAULT_OPACITY[item?.type] ?? 1;
     this.bar.querySelector("#itemOpacity").value = Math.round((item?.opacity ?? def) * 100);
+    this.bar.querySelector('[data-act="geo"]').classList.toggle("is-on", !!item?.location);
     this.positionBar();
   }
   _hideBar() {
@@ -300,6 +344,16 @@ export class ItemLayer {
     this.bar.querySelector('[data-act="note"]').addEventListener("click", () =>
       this.attachNote()
     );
+    this.bar.querySelector('[data-act="geo"]').addEventListener("click", (e) => {
+      const item = this._get(this.selected);
+      if (!item) return;
+      openGeotagPopover(e.currentTarget, item.location || null, (loc) => {
+        if (loc) item.location = loc;
+        else delete item.location;
+        this._updateGeoBadge(item);
+        save();
+      });
+    });
   }
 
   _reflectDrawState() {
@@ -342,12 +396,36 @@ export class ItemLayer {
   }
 
   // ---------- per-item interaction ----------
-  _wire(el, item, { svg, handle, del, badge }) {
+  _wire(el, item, { svg, handle, del, badge, geo, fileOpen }) {
     badge.style.pointerEvents = "none";
+
+    // Geotag pin — click to view/edit where this item's subject lived.
+    geo.addEventListener("pointerdown", (e) => e.stopPropagation());
+    geo.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openGeotagPopover(geo, item.location || null, (loc) => {
+        if (loc) item.location = loc;
+        else delete item.location;
+        this._updateGeoBadge(item);
+        save();
+      });
+    });
+
+    // File cards (docs/videos placed from the pocket) open on their own button.
+    if (fileOpen) {
+      fileOpen.addEventListener("pointerdown", (e) => e.stopPropagation());
+      fileOpen.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!this.resolveFileUrl || !item.pocketId) { alert("This file isn't available."); return; }
+        const url = await this.resolveFileUrl(item.pocketId);
+        if (url) window.open(url, "_blank", "noopener");
+        else alert("This file is no longer in your pocket.");
+      });
+    }
 
     // Body: draw, move, or tap-to-toggle depending on mode/state.
     el.addEventListener("pointerdown", (e) => {
-      if (e.target === handle || e.target === del) return;
+      if (e.target === handle || e.target === del || e.target === geo || e.target === fileOpen) return;
       if (e.target.isContentEditable) return; // editing text
       e.stopPropagation();
       const wasSelected = this.selected === item.id;

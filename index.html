@@ -17,6 +17,8 @@
 
   <link rel="stylesheet" href="styles/main.css" />
   <link rel="stylesheet" href="background/background.css" />
+  <link rel="stylesheet" href="geotag/geotag.css" />
+  <link rel="stylesheet" href="pocket/pocket.css" />
 </head>
 <body>
   <!-- HOME: your canvases + courtyards (rendered by home.js) -->
@@ -61,6 +63,29 @@
     <button id="resetView" class="reset-view" type="button" title="Reset view">
       <span id="zoomLabel">100%</span>
     </button>
+
+    <!-- Pocket: documents, videos, and object photos staged for this canvas -->
+    <button id="pocketToggle" class="pocket-toggle" type="button" title="Pocket: saved photos, documents, and videos for this canvas">
+      🎒 <span class="pocket-toggle__label">pocket</span>
+    </button>
+    <aside id="pocketPanel" class="pocket-panel" hidden>
+      <div class="pocket-panel__head">
+        <h3>pocket</h3>
+        <button id="pocketClose" class="pocket-panel__close" type="button" aria-label="Close pocket">×</button>
+      </div>
+      <p class="pocket-panel__hint">Save documents, videos, and photos of things you might use — leaves, rocks, anything — without placing them yet.</p>
+      <label class="pocket-panel__add">
+        <input id="pocketAdd" class="visually-hidden" type="file" multiple accept="image/*,video/*,.pdf,.doc,.docx,.txt" />
+        + add file
+      </label>
+      <div id="pocketGrid" class="pocket-grid"></div>
+    </aside>
+    <div id="pocketPreview" class="pocket-preview" hidden>
+      <div class="pocket-preview__panel">
+        <button id="pocketPreviewClose" class="pocket-preview__close" type="button" aria-label="Close preview">×</button>
+        <div id="pocketPreviewBody"></div>
+      </div>
+    </div>
   </div>
 
   <!-- COURTYARD: two canvases around a shared void (rendered by courtyard.js) -->
@@ -83,6 +108,7 @@
     </label>
     <button class="item-bar__btn" data-act="draw" type="button" title="Draw on this">✎ draw</button>
     <button class="item-bar__btn" data-act="note" type="button" title="Attach a note">＋ note</button>
+    <button class="item-bar__btn" data-act="geo" type="button" title="Where this lived">📍 geotag</button>
   </div>
 
   <!-- Shape-extraction studio -->

@@ -1,0 +1,67 @@
+/* geotag/geotag.css — the small "where did this live?" popover. */
+
+.geotag-pop {
+  position: fixed;
+  z-index: 50;
+  width: 240px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+}
+.geotag-pop__use {
+  border: 1px dashed var(--accent);
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 12.5px;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+}
+.geotag-pop__use:hover { background: rgba(176, 125, 75, .08); }
+.geotag-pop__row { display: flex; gap: 6px; }
+.geotag-pop input[type="text"] {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 12.5px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--ink);
+  min-width: 0;
+}
+.geotag-pop__row input { width: 50%; }
+.geotag-pop__label { width: 100%; }
+.geotag-pop__src { margin: 0; font-size: 11px; opacity: .6; }
+.geotag-pop__actions { display: flex; justify-content: space-between; align-items: center; }
+.geotag-pop__clear {
+  border: none; background: transparent; color: #b04b4b;
+  font-size: 12.5px; cursor: pointer; padding: 6px 4px;
+}
+.geotag-pop__save {
+  border: none; background: var(--accent); color: var(--accent-ink);
+  font-weight: 600; font-size: 12.5px; border-radius: 8px;
+  padding: 7px 14px; cursor: pointer;
+}
+
+/* Small pin badge shown on any geotagged item, on canvas or in the pocket. */
+.geo-badge {
+  position: absolute;
+  left: -8px; top: -8px;
+  transform: scale(var(--inv-scale, 1));
+  transform-origin: top left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  width: 22px; height: 22px;
+  display: grid; place-items: center;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0,0,0,.18);
+}

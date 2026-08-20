@@ -5,6 +5,7 @@ import { Viewport } from "./viewport.js";
 import { ItemLayer } from "./items.js";
 import { Studio } from "./studio.js";
 import { BackgroundLayer } from "../background/background.js";
+import { PocketPanel, getPocketBlobURL } from "../pocket/pocket.js";
 import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
 import { renderCourtyard } from "./courtyard.js";
@@ -89,21 +90,48 @@ photoMenu.querySelectorAll(".photo-menu__item").forEach((item) => {
     openPhotoMenu(false);
   });
 });
+// Places a cut-out result either as a background region or a normal item,
+// sized to fit its own aspect ratio. Shared by the toolbar's camera/upload
+// flow and by "add to canvas" on a pocket photo.
+function placeCutout(dataURL, w, h, extra = {}) {
+  if (bg.mode) { bg.add("image", { src: dataURL, parentId: bgParentTarget() }); return; }
+  const maxSide = 260;
+  const ratio = w / h;
+  layer.add("image", {
+    src: dataURL,
+    w: Math.round(ratio >= 1 ? maxSide : maxSide * ratio),
+    h: Math.round(ratio >= 1 ? maxSide / ratio : maxSide),
+    ...extra,
+  });
+}
 async function handlePhotoFile(file) {
   if (!file) return;
-  await studio.open(file, (dataURL, w, h) => {
-    if (bg.mode) { bg.add("image", { src: dataURL, parentId: bgParentTarget() }); return; }
-    const maxSide = 260;
-    const ratio = w / h;
-    layer.add("image", {
-      src: dataURL,
-      w: Math.round(ratio >= 1 ? maxSide : maxSide * ratio),
-      h: Math.round(ratio >= 1 ? maxSide / ratio : maxSide),
-    });
-  });
+  await studio.open(file, (dataURL, w, h) => placeCutout(dataURL, w, h));
 }
 photoCamera.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
 photoUpload.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
+
+// ---------- pocket: staged docs/videos/object photos for this canvas ----------
+layer.resolveFileUrl = getPocketBlobURL; // 'file' items open by resolving their pocket blob on click
+
+const pocket = new PocketPanel({
+  onPlace: async (record) => {
+    if (record.kind === "photo") {
+      // Route through the same cut-out studio as the toolbar, carrying the
+      // pocket photo's location (often read from its EXIF GPS) onto the item.
+      await studio.open(record.blob, (dataURL, w, h) =>
+        placeCutout(dataURL, w, h, record.location ? { location: record.location } : {})
+      );
+    } else {
+      layer.add("file", {
+        pocketId: record.id,
+        name: record.name,
+        mime: record.mime,
+        location: record.location || undefined,
+      });
+    }
+  },
+});
 
 document.getElementById("resetView").addEventListener("click", () => viewport.reset());
 document.getElementById("canvasBack").addEventListener("click", () => go(""));
@@ -118,6 +146,7 @@ function showView(name) {
   layer.select(null);
   bg.select(null);
   studio.close();
+  pocket.close();
   openPhotoMenu(false);
   homeView.hidden = name !== "home";
   canvasView.hidden = name !== "canvas";
@@ -134,6 +163,7 @@ function showCanvas(id) {
   canvasTitle.textContent = getCanvas(id).name;
   layer.loadCanvas(id);
   bg.loadCanvas(id);
+  pocket.loadCanvas(id);
   viewport.reset();
 }
 function showCourtyard(id) {

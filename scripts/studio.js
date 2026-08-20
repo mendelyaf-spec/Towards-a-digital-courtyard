@@ -26,7 +26,13 @@ export class Studio {
 
   async open(file, onPlace) {
     this.onPlace = onPlace;
-    this.source = await fileToCanvas(file);
+    try {
+      this.source = await fileToCanvas(file);
+    } catch (err) {
+      console.error(err);
+      alert(err.message || "Couldn't open that photo.");
+      return;
+    }
     this._recompute();
     this.el.hidden = false;
   }

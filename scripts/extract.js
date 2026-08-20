@@ -15,7 +15,10 @@ export async function fileToCanvas(file) {
     const img = await new Promise((res, rej) => {
       const im = new Image();
       im.onload = () => res(im);
-      im.onerror = rej;
+      // Reject with a real Error, not the raw load-failure Event — an event
+      // object has no .message, so an unwrapped `rej` here surfaces (if it
+      // surfaces at all) as an unhelpful "Event" and can fail silently.
+      im.onerror = () => rej(new Error("Couldn't read that image — it may be corrupted or an unsupported format."));
       im.src = url;
     });
     const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
