@@ -119,19 +119,40 @@ export function closeLinkPrompt() {
   openPop = null;
 }
 
-// ---------------- "bury a video in this item" popover ----------------
-// Same visual language as the link popover, but YouTube-only (an item can
-// only carry a playable embed, not a bookmark) and offers a "remove" action.
+// ---------------- "attach a link to this item" popover ----------------
+// Any link, same as the toolbar/pocket: a YouTube link plays inline right
+// over the item on tap; any other link just opens in a new tab on tap (most
+// sites block being framed at all — see the note at the top of this file).
+// Either way, its preview image — the video's thumbnail, or the page's
+// favicon — can optionally show as a translucent wash over the item; hidden
+// by default, since the whole point is "bury" it inside the item's own look.
 
-/** @param {boolean} hasExisting @param {(videoId:string,title:string)=>void} onSubmit @param {()=>void} onRemove */
-export function openEmbedPrompt(anchorEl, hasExisting, onSubmit, onRemove) {
+/**
+ * @param {{kind,videoId,url,title,thumbnailUrl,faviconUrl,domain,showThumbnail,thumbnailOpacity}|null} current
+ * @param {(embed:object)=>void} onSubmit — a full embed object, ready to store as item.embed
+ * @param {()=>void} onRemove
+ */
+export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
   closeLinkPrompt();
+  const hasExisting = !!current;
+  const showThumbnail = current?.showThumbnail ?? false;
+  const thumbnailOpacity = current?.thumbnailOpacity ?? 1;
+  const currentUrl = hasExisting ? (current.kind === "link" ? current.url : youtubeWatchUrl(current.videoId)) : "";
   const pop = document.createElement("div");
   pop.className = "link-pop";
   pop.innerHTML = `
-    <label class="link-pop__label">${hasExisting ? "change the buried video" : "bury a YouTube video in this item"}</label>
-    <input type="text" class="link-pop__url" placeholder="https://youtube.com/watch?v=…" />
-    <p class="link-pop__err" hidden>only YouTube links can be buried in an item</p>
+    <label class="link-pop__label">${hasExisting ? "change the attached link" : "attach a link to this item"}</label>
+    <input type="text" class="link-pop__url" placeholder="a YouTube link plays inline; any other link opens on tap" value="${currentUrl}" />
+    <p class="link-pop__err" hidden>that doesn't look like a link</p>
+    ${hasExisting ? `
+    <label class="link-pop__toggle">
+      <input type="checkbox" class="link-pop__show" ${showThumbnail ? "checked" : ""} />
+      show its ${current.kind === "link" ? "page icon" : "thumbnail"} over the item
+    </label>
+    <label class="link-pop__op" style="display:${showThumbnail ? "flex" : "none"};">
+      <span>preview opacity</span>
+      <input type="range" min="10" max="100" value="${Math.round(thumbnailOpacity * 100)}" class="link-pop__thumbop" />
+    </label>` : ""}
     <div class="link-pop__actions" style="justify-content:space-between;">
       ${hasExisting ? '<button type="button" class="link-pop__remove" data-act="remove">remove</button>' : "<span></span>"}
       <span style="display:flex; gap:8px;">
@@ -152,21 +173,33 @@ export function openEmbedPrompt(anchorEl, hasExisting, onSubmit, onRemove) {
   const input = pop.querySelector(".link-pop__url");
   const err = pop.querySelector(".link-pop__err");
   const addBtn = pop.querySelector('[data-act="add"]');
+  const showCheckbox = pop.querySelector(".link-pop__show");
+  const opRow = pop.querySelector(".link-pop__op");
+  const opInput = pop.querySelector(".link-pop__thumbop");
   input.focus();
+
+  showCheckbox?.addEventListener("change", () => {
+    if (opRow) opRow.style.display = showCheckbox.checked ? "flex" : "none";
+  });
 
   const submit = async () => {
     err.hidden = true;
     addBtn.disabled = true;
     addBtn.textContent = "saving…";
-    const videoId = parseYouTubeId(input.value);
-    if (!videoId) {
+    const link = await resolveLink(input.value).catch(() => null);
+    if (!link) {
       err.hidden = false;
       addBtn.disabled = false;
       addBtn.textContent = "save";
       return;
     }
-    const title = await fetchYouTubeTitle(videoId).catch(() => null);
-    onSubmit(videoId, title || "");
+    const showThumb = showCheckbox ? showCheckbox.checked : false;
+    const thumbOp = opInput ? Number(opInput.value) / 100 : 1;
+    const embed =
+      link.kind === "youtube"
+        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail: showThumb, thumbnailOpacity: thumbOp }
+        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail: showThumb, thumbnailOpacity: thumbOp };
+    onSubmit(embed);
     closeLinkPrompt();
   };
   addBtn.addEventListener("click", submit);

@@ -218,15 +218,31 @@ export class ItemLayer {
       el.appendChild(card);
     }
 
-    // A "buried" video: any item can carry one (item.embed = {videoId,title}).
-    // It stays invisible — the item looks exactly like its normal content —
-    // until tapped, when the video plays right over it in place.
+    // A "buried" link: any item can carry one (item.embed). A YouTube link
+    // plays inline right over the item on tap; any other link just opens in
+    // a new tab on tap (older saved items with no .kind predate this and are
+    // always YouTube — see isYoutubeEmbed()). By default the item stays
+    // invisible — it looks exactly like its normal content — until tapped.
+    // Optionally, its preview image (video thumbnail, or the page's favicon)
+    // can show as a translucent wash instead of staying fully hidden
+    // (item.embed.showThumbnail + .thumbnailOpacity).
     let embedOverlay = null;
     if (item.embed) {
+      const isYt = isYoutubeEmbed(item.embed);
+      const previewUrl = isYt ? item.embed.thumbnailUrl : item.embed.faviconUrl;
+      if (item.embed.showThumbnail && previewUrl) {
+        const thumbLayer = document.createElement("div");
+        thumbLayer.className = "embed-thumb-layer";
+        if (!isYt) thumbLayer.classList.add("embed-thumb-layer--icon"); // a favicon shouldn't stretch to cover
+        thumbLayer.style.backgroundImage = `url(${previewUrl})`;
+        thumbLayer.style.opacity = item.embed.thumbnailOpacity ?? 1;
+        el.appendChild(thumbLayer);
+      }
+
       const embedBadge = document.createElement("div");
       embedBadge.className = "embed-badge";
-      embedBadge.title = item.embed.title || "Has a video";
-      embedBadge.textContent = "▶";
+      embedBadge.title = item.embed.title || (isYt ? "Has a video" : "Has a link");
+      embedBadge.textContent = isYt ? "▶" : "🔗";
       el.appendChild(embedBadge);
 
       embedOverlay = document.createElement("div");
@@ -351,11 +367,17 @@ export class ItemLayer {
     return { iframe, close };
   }
 
-  // "Bury" a video into any item (e.g. a photo): it stays looking exactly
-  // like its normal content until tapped, then the video plays right over
+  // "Bury" a link into any item (e.g. a photo): it stays looking exactly
+  // like its normal content until tapped. A YouTube link plays right over
   // it, in place — since it's the SAME item, moving it moves the video too.
-  _playEmbed(overlay, item) {
-    if (!overlay || !item.embed) return;
+  // Any other link just opens in a new tab (most sites can't be framed).
+  _activateEmbed(overlay, item) {
+    if (!item.embed) return;
+    if (!isYoutubeEmbed(item.embed)) {
+      window.open(item.embed.url, "_blank", "noopener");
+      return;
+    }
+    if (!overlay || overlay.classList.contains("is-active")) return;
     const { iframe, close } = this._buildEmbedIframe(item.embed.videoId, () => {
       overlay.classList.remove("is-active");
       overlay.innerHTML = "";
@@ -493,9 +515,9 @@ export class ItemLayer {
       const { openEmbedPrompt } = await import("../links/links.js");
       openEmbedPrompt(
         anchorEl,
-        !!item.embed,
-        (videoId, title) => {
-          item.embed = { videoId, title };
+        item.embed || null,
+        (embed) => {
+          item.embed = embed;
           save();
           this._reRender(item);
         },
@@ -673,7 +695,7 @@ export class ItemLayer {
         } else if (tappedPoster && item.type === "youtube") {
           this._setYtPlaying(el.querySelector(".yt-card"), item, true);
         } else if (item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
-          this._playEmbed(embedOverlay, item);
+          this._activateEmbed(embedOverlay, item);
         }
       };
       el.addEventListener("pointermove", onMove);
@@ -795,6 +817,13 @@ function ytTitleEl(item) {
   t.className = "yt-card__title";
   t.textContent = item.title || "YouTube video";
   return t;
+}
+
+// An item.embed with no .kind predates the generic-link version of this
+// feature and was always YouTube — treat that as youtube too, not just an
+// explicit kind:'youtube', so existing saved canvases keep working.
+function isYoutubeEmbed(embed) {
+  return !embed.kind || embed.kind === "youtube";
 }
 
 // ---- stroke helpers ----

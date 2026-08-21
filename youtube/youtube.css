@@ -54,7 +54,24 @@
   font-size: 13px;
 }
 
-/* ---- a video "buried" in any other item (see items.js's item.embed) ---- */
+/* ---- a link "buried" in any other item (see items.js's item.embed) ---- */
+/* Optional translucent wash of the video's thumbnail (or the page's
+   favicon) over the item's own content — hidden unless turned on. */
+.embed-thumb-layer {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  border-radius: 8px;
+  pointer-events: none;
+}
+/* A favicon is tiny (~64px) — stretching it edge-to-edge like a video
+   thumbnail looks blurry, so it stays small and centered instead. */
+.embed-thumb-layer--icon {
+  background-size: 40% auto;
+  background-repeat: no-repeat;
+}
+
 /* Small, quiet corner indicator — the item otherwise looks exactly like its
    normal content until played. Bottom-left: geo pin owns top-left, delete
    owns top-right, resize handle owns bottom-right, note badge owns
