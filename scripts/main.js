@@ -133,12 +133,15 @@ layer.onSendToPocket = (item) => sendItemToPocket(pocket.canvasId, item);
 layer.onOpenLink = (url, title) => inAppBrowser.open(url, title);
 
 pocket = new PocketPanel({
-  onPlace: async (record) => {
+  // dropPos (world coords) is set when this came from dragging a card
+  // straight onto the canvas, instead of tapping "add to canvas" — omitted,
+  // the item centers on the current view as usual.
+  onPlace: async (record, dropPos) => {
     if (record.kind === "photo") {
       // Route through the same cut-out studio as the toolbar, carrying the
       // pocket photo's location (often read from its EXIF GPS) onto the item.
       await studio.open(record.blob, (dataURL, w, h) =>
-        placeCutout(dataURL, w, h, record.location ? { location: record.location } : {})
+        placeCutout(dataURL, w, h, { ...(record.location ? { location: record.location } : {}), ...(dropPos ? { nearCenter: dropPos } : {}) })
       );
     } else if (record.kind === "youtube") {
       layer.add("youtube", {
@@ -146,6 +149,7 @@ pocket = new PocketPanel({
         title: record.name,
         thumbnailUrl: record.thumbnailUrl,
         location: record.location || undefined,
+        ...(dropPos ? { nearCenter: dropPos } : {}),
       });
     } else if (record.kind === "link") {
       layer.add("link", {
@@ -154,6 +158,7 @@ pocket = new PocketPanel({
         domain: record.domain,
         faviconUrl: record.faviconUrl,
         location: record.location || undefined,
+        ...(dropPos ? { nearCenter: dropPos } : {}),
       });
     } else {
       layer.add("file", {
@@ -161,11 +166,13 @@ pocket = new PocketPanel({
         name: record.name,
         mime: record.mime,
         location: record.location || undefined,
+        ...(dropPos ? { nearCenter: dropPos } : {}),
       });
     }
   },
 });
 pocket.onOpenLink = (url, title) => inAppBrowser.open(url, title);
+pocket.worldPointFromScreen = (x, y) => viewport.screenToWorld(x, y);
 
 // ---------- links: embed a video or drop a bookmark directly, no pocket needed ----------
 const linkBtn = document.getElementById("linkBtn");

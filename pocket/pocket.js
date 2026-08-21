@@ -203,7 +203,9 @@ export class PocketPanel {
     this.onPlace = onPlace || (() => {});
     this.canvasId = null;
     this.onOpenLink = null; // hook: (url, title) -> void — opens the in-app browser, if wired
+    this.worldPointFromScreen = null; // hook: (clientX, clientY) -> {x,y} world coords, for drag-to-canvas
     this.objectUrls = new Set(); // revoked on refresh/teardown to avoid leaking memory
+    this._justDragged = false; // suppresses the click-based "view" firing right after a real drag
 
     this.toggleBtn = document.getElementById("pocketToggle");
     this.panel = document.getElementById("pocketPanel");
@@ -242,6 +244,7 @@ export class PocketPanel {
     });
 
     this.grid.addEventListener("click", (e) => this._onGridClick(e));
+    this.grid.addEventListener("pointerdown", (e) => this._onThumbPointerDown(e));
   }
 
   // Swap to another canvas's pocket (same pattern as ItemLayer/BackgroundLayer.loadCanvas).
@@ -289,6 +292,7 @@ export class PocketPanel {
   }
 
   async _onGridClick(e) {
+    if (this._justDragged) { this._justDragged = false; return; } // a real drag already handled this pointer's up
     const card = e.target.closest(".pocket-card");
     if (!card) return;
     const id = card.dataset.id;
@@ -310,6 +314,51 @@ export class PocketPanel {
         this.refresh();
       });
     }
+  }
+
+  // Drag a card's thumbnail out onto the canvas to place it there directly —
+  // release over the pocket itself (or anywhere that isn't the canvas) and
+  // nothing happens, same as just letting go of a plain tap. A tap under the
+  // movement threshold still falls through to the normal click-based "view".
+  _onThumbPointerDown(e) {
+    const thumb = e.target.closest(".pocket-card__thumb");
+    const card = thumb?.closest(".pocket-card");
+    const id = card?.dataset.id;
+    if (!thumb || !id) return;
+    const start = { x: e.clientX, y: e.clientY };
+    let dragging = false;
+    let ghost = null;
+
+    const onMove = (ev) => {
+      if (!dragging && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) > 6) {
+        dragging = true;
+        ghost = document.createElement("div");
+        ghost.className = "pocket-drag-ghost";
+        const bg = thumb.style.backgroundImage;
+        if (bg) ghost.style.backgroundImage = bg;
+        else ghost.textContent = thumb.textContent;
+        document.body.appendChild(ghost);
+      }
+      if (!ghost) return;
+      ghost.style.left = ev.clientX + "px";
+      ghost.style.top = ev.clientY + "px";
+      const overCanvas = !!document.elementFromPoint(ev.clientX, ev.clientY)?.closest("#viewport");
+      ghost.classList.toggle("is-over-canvas", overCanvas);
+    };
+    const onUp = async (ev) => {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      if (!dragging) return;
+      ghost?.remove();
+      this._justDragged = true;
+      const target = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (target?.closest("#viewport") && this.worldPointFromScreen) {
+        const record = await getPocketItem(id);
+        if (record) this.onPlace(record, this.worldPointFromScreen(ev.clientX, ev.clientY));
+      }
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
   }
 
   async _preview(id) {

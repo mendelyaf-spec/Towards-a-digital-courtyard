@@ -84,6 +84,26 @@
   color: var(--ink);
 }
 .pocket-card[data-kind] .pocket-card__thumb { background-color: #ece5d3; }
+
+/* Follows the pointer while dragging a card out onto the canvas. */
+.pocket-drag-ghost {
+  position: fixed;
+  z-index: 70;
+  width: 72px; height: 72px;
+  margin: -36px 0 0 -36px; /* centered on the pointer */
+  border-radius: 10px;
+  background: var(--paper-raised, #efe9d8) center/cover no-repeat;
+  border: 2px solid var(--line);
+  box-shadow: 0 8px 20px rgba(0,0,0,.25);
+  display: grid; place-items: center;
+  font-size: 26px;
+  pointer-events: none;
+  opacity: .9;
+}
+.pocket-drag-ghost.is-over-canvas {
+  border-color: var(--accent);
+  transform: scale(1.08);
+}
 .pocket-card__name {
   font-size: 13px; font-weight: 500;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
