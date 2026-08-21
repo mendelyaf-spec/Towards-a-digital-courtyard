@@ -17,6 +17,11 @@ const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
 const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", text: "255,253,247", file: "239,231,210", link: "251,248,242" };
 const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 0.82, image: 1, file: 1, youtube: 1, link: 1 };
 
+function hexToRgb(hex) {
+  const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || "");
+  return m ? `${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)}` : null;
+}
+
 export class ItemLayer {
   constructor(worldEl, viewport) {
     this.world = worldEl;
@@ -341,7 +346,7 @@ export class ItemLayer {
       if (img) img.style.opacity = op;
       return;
     }
-    const rgb = FILL_RGB[item.type];
+    const rgb = (item.color && hexToRgb(item.color)) || FILL_RGB[item.type];
     if (rgb) el.style.backgroundColor = `rgba(${rgb}, ${op})`;
   }
 
@@ -605,7 +610,12 @@ export class ItemLayer {
     const fontRow = this.bar.querySelector(".item-bar__op--font");
     fontRow.style.display = item?.type === "text" ? "" : "none";
     this.bar.querySelector("#itemFontSize").value = item?.fontSize || 16;
-    this.bar.querySelector('[data-act="embed"]').classList.toggle("is-on", !!item?.embed);
+    // Same button opens the same popover either way, but its label should
+    // say "edit" once there's something to edit (and remove) — "attach"
+    // reads like a dead end once a link is already there.
+    const embedBtn = this.bar.querySelector('[data-act="embed"]');
+    embedBtn.classList.toggle("is-on", !!item?.embed);
+    embedBtn.textContent = item?.embed ? "🔗 edit / remove link" : "🔗 attach link";
     this.positionBar();
   }
   _hideBar() {
@@ -705,9 +715,18 @@ export class ItemLayer {
   setColor(c) {
     this.color = c;
     const item = this._get(this.selected);
-    if (item?.type === "text") {
+    if (!item) return;
+    if (item.type === "text") {
       item.color = c;
       this.nodes.get(item.id).querySelector(".text-body").style.color = c;
+      save();
+    } else if (FILL_RGB[item.type]) {
+      // rect/circle/file/link — recolor the shape's own fill/wash, same as
+      // text above. Every shape of a given type used to share one hardcoded
+      // color (FILL_RGB) with no way to override it per item — this swatch
+      // looked live but silently did nothing outside of text.
+      item.color = c;
+      this._applyFill(this.nodes.get(item.id), item);
       save();
     }
   }

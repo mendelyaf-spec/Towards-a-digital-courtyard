@@ -31,7 +31,10 @@
   <div id="canvasView" class="view" hidden>
     <button id="canvasBack" class="back-btn" type="button" title="Back to home">‹ home</button>
     <button id="undoBtn" class="undo-btn" type="button" title="Undo (Ctrl+Z)" disabled>↶</button>
-    <span id="canvasTitle" class="canvas-title"></span>
+    <div class="canvas-title">
+      <span id="canvasTitle"></span>
+      <button id="canvasRename" class="canvas-rename-btn" type="button" title="Rename canvas">✎</button>
+    </div>
 
     <!-- The viewport holds the transformable world -->
     <div id="viewport" class="viewport">

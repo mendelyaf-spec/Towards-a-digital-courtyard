@@ -12,7 +12,7 @@ import { openLinkPrompt, closeLinkPrompt } from "../links/links.js";
 import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
 import { renderCourtyard } from "./courtyard.js";
-import { migrate, getCanvas, createCanvas, listCanvases } from "./store.js";
+import { migrate, getCanvas, createCanvas, listCanvases, renameCanvas } from "./store.js";
 import { canUndo, setUndoChangeListener } from "./undo.js";
 import { consumeInvite } from "../courtyardcreationlogic.js";
 
@@ -189,6 +189,16 @@ linkBtn.addEventListener("click", () => {
 document.getElementById("resetView").addEventListener("click", () => viewport.reset());
 document.getElementById("canvasBack").addEventListener("click", () => go(""));
 
+document.getElementById("canvasRename").addEventListener("click", () => {
+  if (!currentCanvasId) return;
+  const current = getCanvas(currentCanvasId)?.name || "";
+  const name = prompt("Rename canvas", current);
+  if (name && name.trim() && name.trim() !== current) {
+    renameCanvas(currentCanvasId, name.trim());
+    canvasTitle.textContent = name.trim();
+  }
+});
+
 // ---------- undo ----------
 const undoBtn = document.getElementById("undoBtn");
 const refreshUndoBtn = () => { undoBtn.disabled = !canUndo(); };
@@ -219,9 +229,11 @@ function showHome() {
   showView("home");
   renderHome(homeView);
 }
+let currentCanvasId = null;
 function showCanvas(id) {
   if (!id || !getCanvas(id)) return go("");
   showView("canvas");
+  currentCanvasId = id;
   canvasTitle.textContent = getCanvas(id).name;
   layer.loadCanvas(id);
   bg.loadCanvas(id);

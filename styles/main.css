@@ -72,18 +72,34 @@ html, body {
   top: 16px; left: 50%;
   transform: translateX(-50%);
   z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 50vw;
   font-size: 15px;
   color: var(--ink);
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 6px 16px;
+  padding: 6px 8px 6px 16px;
   box-shadow: var(--shadow);
-  max-width: 50vw;
+}
+.canvas-title > span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.canvas-rename-btn {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-faint, #9a927a);
+  font-size: 12px;
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.canvas-rename-btn:hover { background: rgba(0,0,0,.06); color: var(--ink); }
 
 /* ---------- Home ---------- */
 .home__head {
