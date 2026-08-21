@@ -4,6 +4,7 @@
 import { Viewport } from "./viewport.js";
 import { ItemLayer } from "./items.js";
 import { Studio } from "./studio.js";
+import { FramePicker } from "../videoframe/videoframe.js";
 import { BackgroundLayer } from "../background/background.js";
 import { PocketPanel, getPocketBlobURL, sendItemToPocket } from "../pocket/pocket.js";
 import { openLinkPrompt, closeLinkPrompt } from "../links/links.js";
@@ -32,6 +33,7 @@ const worldEl = document.getElementById("world");
 const bg = new BackgroundLayer(worldEl, viewport);
 const layer = new ItemLayer(worldEl, viewport);
 const studio = new Studio();
+const framePicker = new FramePicker();
 
 viewport.onChange = (s) => {
   zoomLabel.textContent = Math.round(s * 100) + "%";
@@ -107,6 +109,13 @@ function placeCutout(dataURL, w, h, extra = {}) {
 }
 async function handlePhotoFile(file) {
   if (!file) return;
+  if (file.type.startsWith("video/")) {
+    // Pick a still frame first — it then flows into the exact same cut-out
+    // pipeline as any photo, so nothing downstream needs to know a video
+    // was ever involved.
+    framePicker.open(file, (stillFrame) => handlePhotoFile(stillFrame));
+    return;
+  }
   await studio.open(file, (dataURL, w, h) => placeCutout(dataURL, w, h));
 }
 photoCamera.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
@@ -178,6 +187,7 @@ function showView(name) {
   layer.select(null);
   bg.select(null);
   studio.close();
+  framePicker.close();
   pocket.close();
   openPhotoMenu(false);
   closeLinkPrompt();

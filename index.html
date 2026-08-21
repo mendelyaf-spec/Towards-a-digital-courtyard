@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="pocket/pocket.css" />
   <link rel="stylesheet" href="youtube/youtube.css" />
   <link rel="stylesheet" href="links/links.css" />
+  <link rel="stylesheet" href="videoframe/videoframe.css" />
 </head>
 <body>
   <!-- HOME: your canvases + courtyards (rendered by home.js) -->
@@ -53,7 +54,7 @@
         <span class="tool__label">cut from photo</span>
       </button>
       <input id="photoCamera" class="visually-hidden" type="file" accept="image/*" capture="environment" />
-      <input id="photoUpload" class="visually-hidden" type="file" accept="image/*" />
+      <input id="photoUpload" class="visually-hidden" type="file" accept="image/*,video/*" />
       <span class="toolbar__sep" aria-hidden="true"></span>
       <button class="tool tool--link" id="linkBtn" type="button" title="Embed a YouTube video, or drop a link to any page">
         <span class="tool__glyph tool__glyph--link">🔗</span>
@@ -102,7 +103,7 @@
   <!-- Take-photo / upload chooser -->
   <div id="photoMenu" class="photo-menu" role="menu" hidden>
     <button class="photo-menu__item" data-source="camera" type="button" role="menuitem">take photo</button>
-    <button class="photo-menu__item" data-source="upload" type="button" role="menuitem">upload</button>
+    <button class="photo-menu__item" data-source="upload" type="button" role="menuitem">upload photo or video</button>
   </div>
 
   <!-- Contextual tools for the selected item -->
@@ -118,6 +119,26 @@
     <button class="item-bar__btn" data-act="note" type="button" title="Attach a note">＋ note</button>
     <button class="item-bar__btn" data-act="geo" type="button" title="Where this lived">📍 geotag</button>
     <button class="item-bar__btn" data-act="embed" type="button" title="Attach a link to this item — a YouTube link plays inline; any other link opens on tap">🔗 attach link</button>
+  </div>
+
+  <!-- Choose a frame from an uploaded video, before it goes into the studio -->
+  <div id="framePicker" class="frame-picker" hidden>
+    <div class="frame-picker__panel" role="dialog" aria-modal="true" aria-labelledby="framePickerTitle">
+      <h2 id="framePickerTitle" class="frame-picker__title">choose a frame</h2>
+      <p class="frame-picker__hint">Scrub to the moment you want, then use that frame as the photo to cut out.</p>
+      <div class="frame-picker__stage">
+        <video id="framePickerVideo" class="frame-picker__video" muted playsinline></video>
+      </div>
+      <div class="frame-picker__controls">
+        <button id="framePickerPlay" class="frame-picker__play" type="button" aria-label="Play/pause">▶</button>
+        <input id="framePickerScrub" class="frame-picker__scrub" type="range" min="0" max="1" step="0.01" value="0" />
+        <span id="framePickerTime" class="frame-picker__time">0:00 / 0:00</span>
+      </div>
+      <div class="frame-picker__actions">
+        <button id="framePickerCancel" class="btn btn--ghost" type="button">cancel</button>
+        <button id="framePickerUse" class="btn btn--solid" type="button">use this frame</button>
+      </div>
+    </div>
   </div>
 
   <!-- Shape-extraction studio -->
