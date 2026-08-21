@@ -16,7 +16,18 @@
   border-radius: 10px;
 }
 .bg-item--circle { border-radius: 50%; }
-.bg-item--image { background-repeat: no-repeat; }
+.bg-item--image { overflow: hidden; }
+
+/* The photo itself — panned/zoomed/rotated independently of the region box
+   that clips it (background/background.js's _styleImg). */
+.bg-item__img {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+}
 
 .bg-item.is-selected {
   outline: 2px dashed var(--accent);
@@ -156,6 +167,11 @@
   white-space: nowrap;
 }
 .bg-bar__fill:hover { background: rgba(176, 125, 75, .12); }
+.bg-bar__pan.is-on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
 
 /* The toolbar's background toggle, lit when active. */
 .tool--bg.is-on {

@@ -28,6 +28,7 @@ export class BackgroundLayer {
     this._drag = null;        // snapshot while a group is being dragged
     this.canvasId = null;     // which canvas these backgrounds belong to
     this.items = [];
+    this._panMode = false;    // when true, dragging an image region pans its photo instead of moving the box
 
     // Behind all content.
     this.bgWorld = document.createElement("div");
@@ -84,7 +85,11 @@ export class BackgroundLayer {
       opacity: DEFAULT_OPACITY,
       placing: true, // starts diaphanous, above content, awaiting "Set"
       ...(parentId ? { parentId } : {}),
-      ...(shape === "image" ? { src } : { color: FILL[shape] || "#d7c4a3" }),
+      // imgScale/imgRotate/imgOffsetX/imgOffsetY crop the source photo within
+      // the region — independent of rotation/w/h, which shape the region itself.
+      ...(shape === "image"
+        ? { src, imgScale: 1, imgRotate: 0, imgOffsetX: 0, imgOffsetY: 0 }
+        : { color: FILL[shape] || "#d7c4a3" }),
     };
     this.items.push(item);
     this._toFront(); // placing layer must sit above content
@@ -178,7 +183,16 @@ export class BackgroundLayer {
     const el = document.createElement("div");
     el.className = `bg-item bg-item--${item.shape}`;
     el.dataset.id = item.id;
-    if (item.shape === "image") el.style.backgroundImage = `url(${item.src})`;
+    if (item.shape === "image") {
+      // An actual <img>, not a CSS background-image, so it can be panned,
+      // zoomed and rotated independently of the region box that clips it.
+      const img = document.createElement("img");
+      img.className = "bg-item__img";
+      img.src = item.src;
+      img.alt = "";
+      img.draggable = false;
+      el.appendChild(img);
+    }
     this._style(el, item);
 
     const rotate = document.createElement("div");
@@ -214,6 +228,19 @@ export class BackgroundLayer {
     el.style.opacity = item.placing ? Math.min(item.opacity, PLACING_OPACITY) : item.opacity;
     el.classList.toggle("is-placing", !!item.placing);
     if (item.shape !== "image") el.style.background = item.color;
+    else this._styleImg(el, item);
+  }
+
+  // Pan/zoom/rotate of the photo *content* inside its region — separate from
+  // the region box's own rotation, which _style() applies to `el` above.
+  _styleImg(el, item) {
+    const img = el.querySelector(".bg-item__img");
+    if (!img) return;
+    const scale = item.imgScale ?? 1;
+    const rot = item.imgRotate ?? 0;
+    const ox = item.imgOffsetX ?? 0;
+    const oy = item.imgOffsetY ?? 0;
+    img.style.transform = `translate(-50%, -50%) translate(${ox}px, ${oy}px) rotate(${rot}deg) scale(${scale})`;
   }
 
   // ---------- selection + bar ----------
@@ -221,6 +248,7 @@ export class BackgroundLayer {
     if (this.selected === id) return;
     if (this.selected) this.nodes.get(this.selected)?.classList.remove("is-selected");
     this.selected = id;
+    this._panMode = false; // switching selection always drops out of pan mode
     if (id) {
       const el = this.nodes.get(id);
       el?.classList.add("is-selected");
@@ -238,9 +266,17 @@ export class BackgroundLayer {
     const item = this._get(this.selected);
     if (!item) return;
     this.bar.hidden = false;
-    this._colorInput.parentElement.style.display = item.shape === "image" ? "none" : "";
+    const isImg = item.shape === "image";
+    this._colorInput.parentElement.style.display = isImg ? "none" : "";
     this._colorInput.value = item.color || "#d7c4a3";
     this._opInput.value = Math.round(item.opacity * 100);
+    this._zoomInput.parentElement.style.display = isImg ? "" : "none";
+    this._rotImgInput.parentElement.style.display = isImg ? "" : "none";
+    this._panBtn.style.display = isImg ? "" : "none";
+    this._zoomInput.value = Math.round((item.imgScale ?? 1) * 100);
+    this._rotImgInput.value = item.imgRotate ?? 0;
+    this._panBtn.classList.toggle("is-on", this._panMode);
+    this._panBtn.textContent = this._panMode ? "done" : "move photo";
     this._setBtn.textContent = item.placing ? "set background" : "adjust";
     this.positionBar();
   }
@@ -275,16 +311,47 @@ export class BackgroundLayer {
         <span>opacity</span>
         <input type="range" min="10" max="100" value="100" class="bg-bar__range" />
       </label>
+      <label class="bg-bar__op bg-bar__op--zoom" title="Zoom the photo within its shape">
+        <span>zoom</span>
+        <input type="range" min="50" max="300" value="100" class="bg-bar__range bg-bar__zoomrange" />
+      </label>
+      <label class="bg-bar__op bg-bar__op--rotimg" title="Rotate the photo within its shape">
+        <span>rotate</span>
+        <input type="range" min="-180" max="180" value="0" class="bg-bar__range bg-bar__rotimgrange" />
+      </label>
+      <button type="button" class="bg-bar__fill bg-bar__pan" title="Drag the photo to reposition it within its shape">move photo</button>
       <button type="button" class="bg-bar__fill" title="Resize to cover the whole visible canvas">fill screen</button>
       <button type="button" class="bg-bar__set">set background</button>`;
     document.body.appendChild(bar);
     this.bar = bar;
     this._colorInput = bar.querySelector(".bg-bar__color");
     this._opInput = bar.querySelector(".bg-bar__range");
+    this._zoomInput = bar.querySelector(".bg-bar__zoomrange");
+    this._rotImgInput = bar.querySelector(".bg-bar__rotimgrange");
+    this._panBtn = bar.querySelector(".bg-bar__pan");
     this._setBtn = bar.querySelector(".bg-bar__set");
     this._fillBtn = bar.querySelector(".bg-bar__fill");
     this._fillBtn.addEventListener("click", () => {
       if (this.selected) this.fillScreen(this.selected);
+    });
+    this._zoomInput.addEventListener("input", (e) => {
+      const item = this._get(this.selected);
+      if (!item) return;
+      item.imgScale = e.target.value / 100;
+      this._style(this.nodes.get(item.id), item);
+      this._save();
+    });
+    this._rotImgInput.addEventListener("input", (e) => {
+      const item = this._get(this.selected);
+      if (!item) return;
+      item.imgRotate = Number(e.target.value);
+      this._style(this.nodes.get(item.id), item);
+      this._save();
+    });
+    this._panBtn.addEventListener("click", () => {
+      this._panMode = !this._panMode;
+      this._panBtn.classList.toggle("is-on", this._panMode);
+      this._panBtn.textContent = this._panMode ? "done" : "move photo";
     });
 
     this._colorInput.addEventListener("input", (e) => {
@@ -316,6 +383,24 @@ export class BackgroundLayer {
       e.stopPropagation();
       this.select(item.id);
       el.setPointerCapture(e.pointerId);
+      if (this._panMode && item.shape === "image") {
+        // Reposition the photo within the box instead of moving the box —
+        // un-rotate the drag delta into the box's local axes, same trick the
+        // resize handle below uses, so panning still feels right after the
+        // region itself has been rotated.
+        const start = { x: e.clientX, y: e.clientY, ox: item.imgOffsetX || 0, oy: item.imgOffsetY || 0 };
+        const t = ((item.rotation || 0) * Math.PI) / 180;
+        const cos = Math.cos(t), sin = Math.sin(t);
+        const onMove = (ev) => {
+          const dx = (ev.clientX - start.x) / this.vp.scale;
+          const dy = (ev.clientY - start.y) / this.vp.scale;
+          item.imgOffsetX = start.ox + dx * cos + dy * sin;
+          item.imgOffsetY = start.oy + (-dx * sin + dy * cos);
+          this._style(el, item);
+        };
+        this._dragLoop(el, onMove);
+        return;
+      }
       const start = { x: e.clientX, y: e.clientY, ix: item.x, iy: item.y };
       const onMove = (ev) => {
         item.x = Math.round(start.ix + (ev.clientX - start.x) / this.vp.scale);
