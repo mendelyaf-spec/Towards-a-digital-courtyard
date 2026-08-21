@@ -112,9 +112,13 @@
     <label class="item-bar__color" title="Choose color">
       <input id="inkColor" type="color" value="#b04b4b" />
     </label>
-    <label class="item-bar__op" title="Fill opacity">
+    <label class="item-bar__op" title="Fill opacity (or a buried link's preview, if this item has one)">
       <span>opacity</span>
-      <input id="itemOpacity" type="range" min="10" max="100" value="100" />
+      <input id="itemOpacity" type="range" min="0" max="100" value="100" />
+    </label>
+    <label class="item-bar__op item-bar__op--font" title="Text size">
+      <span>Aa</span>
+      <input id="itemFontSize" type="range" min="10" max="48" value="16" />
     </label>
     <button class="item-bar__btn" data-act="draw" type="button" title="Draw on this">✎ draw</button>
     <button class="item-bar__btn" data-act="note" type="button" title="Attach a note">＋ note</button>

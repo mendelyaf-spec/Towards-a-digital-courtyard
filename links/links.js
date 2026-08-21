@@ -123,9 +123,11 @@ export function closeLinkPrompt() {
 // Any link, same as the toolbar/pocket: a YouTube link plays inline right
 // over the item on tap; any other link just opens in a new tab on tap (most
 // sites block being framed at all — see the note at the top of this file).
-// Either way, its preview image — the video's thumbnail, or the page's
-// favicon — can optionally show as a translucent wash over the item; hidden
-// by default, since the whole point is "bury" it inside the item's own look.
+// Its preview image (the video's thumbnail, or the page's favicon) starts
+// hidden — the whole point is to "bury" it inside the item's own look — and
+// is revealed afterward with the item bar's own opacity slider, which
+// doubles as this control once an item has an embed. That single always-
+// visible slider used to be a second, easy-to-miss one live only here.
 
 /**
  * @param {{kind,videoId,url,title,thumbnailUrl,faviconUrl,domain,showThumbnail,thumbnailOpacity}|null} current
@@ -135,8 +137,6 @@ export function closeLinkPrompt() {
 export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
   closeLinkPrompt();
   const hasExisting = !!current;
-  const showThumbnail = current?.showThumbnail ?? false;
-  const thumbnailOpacity = current?.thumbnailOpacity ?? 1;
   const currentUrl = hasExisting ? (current.kind === "link" ? current.url : youtubeWatchUrl(current.videoId)) : "";
   const pop = document.createElement("div");
   pop.className = "link-pop";
@@ -144,15 +144,7 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
     <label class="link-pop__label">${hasExisting ? "change the attached link" : "attach a link to this item"}</label>
     <input type="text" class="link-pop__url" placeholder="a YouTube link plays inline; any other link opens on tap" value="${currentUrl}" />
     <p class="link-pop__err" hidden>that doesn't look like a link</p>
-    ${hasExisting ? `
-    <label class="link-pop__toggle">
-      <input type="checkbox" class="link-pop__show" ${showThumbnail ? "checked" : ""} />
-      show its ${current.kind === "link" ? "page icon" : "thumbnail"} over the item
-    </label>
-    <label class="link-pop__op" style="display:${showThumbnail ? "flex" : "none"};">
-      <span>preview opacity</span>
-      <input type="range" min="10" max="100" value="${Math.round(thumbnailOpacity * 100)}" class="link-pop__thumbop" />
-    </label>` : ""}
+    ${hasExisting ? '<p class="link-pop__hint">tip: this item\'s opacity slider now also reveals its preview</p>' : ""}
     <div class="link-pop__actions" style="justify-content:space-between;">
       ${hasExisting ? '<button type="button" class="link-pop__remove" data-act="remove">remove</button>' : "<span></span>"}
       <span style="display:flex; gap:8px;">
@@ -173,14 +165,7 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
   const input = pop.querySelector(".link-pop__url");
   const err = pop.querySelector(".link-pop__err");
   const addBtn = pop.querySelector('[data-act="add"]');
-  const showCheckbox = pop.querySelector(".link-pop__show");
-  const opRow = pop.querySelector(".link-pop__op");
-  const opInput = pop.querySelector(".link-pop__thumbop");
   input.focus();
-
-  showCheckbox?.addEventListener("change", () => {
-    if (opRow) opRow.style.display = showCheckbox.checked ? "flex" : "none";
-  });
 
   const submit = async () => {
     err.hidden = true;
@@ -193,12 +178,14 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
       addBtn.textContent = "save";
       return;
     }
-    const showThumb = showCheckbox ? showCheckbox.checked : false;
-    const thumbOp = opInput ? Number(opInput.value) / 100 : 1;
+    // Preserve an existing preview reveal/opacity when just changing the
+    // link itself; otherwise start hidden, as a freshly-buried link should.
+    const showThumbnail = hasExisting ? current.showThumbnail ?? false : false;
+    const thumbnailOpacity = hasExisting ? current.thumbnailOpacity ?? 1 : 1;
     const embed =
       link.kind === "youtube"
-        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail: showThumb, thumbnailOpacity: thumbOp }
-        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail: showThumb, thumbnailOpacity: thumbOp };
+        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail, thumbnailOpacity }
+        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail, thumbnailOpacity };
     onSubmit(embed);
     closeLinkPrompt();
   };

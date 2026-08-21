@@ -110,13 +110,16 @@ export class ItemLayer {
   // { pocketId, name, mime, location } instead of src/text.
   // For type 'youtube', pass { videoId, title, thumbnailUrl, location }.
   // For type 'link' (any other URL), pass { url, name, domain, faviconUrl, location }.
-  add(type, { src, w, h, text, parentId, near, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl } = {}) {
+  // `near` places the item's top-left at a world point; `nearCenter` places
+  // its CENTER there instead (used for "drag from the pocket and drop it
+  // here") — works with whatever w/h ends up resolved, default or explicit.
+  add(type, { src, w, h, text, parentId, near, nearCenter, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl } = {}) {
     // Type-specific defaults must be resolved BEFORE the generic 160x160
     // fallback below, or `w || 160` there clobbers them and every text/file/
     // youtube/link item silently reverts to a square 160x160 (a real bug we hit).
     if (type === "text") {
-      w = w || 200;
-      h = h || 60;
+      w = w || 140;
+      h = h || 40;
     } else if (type === "file") {
       w = w || 180;
       h = h || 90;
@@ -128,13 +131,16 @@ export class ItemLayer {
       h = h || 68;
     }
     let x, y;
+    w = w || 160;
+    h = h || 160;
     if (near) {
       x = near.x;
       y = near.y;
+    } else if (nearCenter) {
+      x = Math.round(nearCenter.x - w / 2);
+      y = Math.round(nearCenter.y - h / 2);
     } else {
       const c = this.vp.centerWorld();
-      w = w || 160;
-      h = h || 160;
       x = Math.round(c.x - w / 2);
       y = Math.round(c.y - h / 2);
     }
@@ -146,7 +152,7 @@ export class ItemLayer {
       w: w || 160,
       h: h || 160,
       ...(src ? { src } : {}),
-      ...(type === "text" ? { text: text ?? "", color: this.color } : {}),
+      ...(type === "text" ? { text: text ?? "", color: this.color, fontSize: 16 } : {}),
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
       ...(type === "link" ? { url, name: name || domain || "link", domain: domain || "", faviconUrl: faviconUrl || "" } : {}),
@@ -178,6 +184,7 @@ export class ItemLayer {
       t.className = "text-body";
       t.textContent = item.text || "";
       t.style.color = item.color || this.color;
+      t.style.fontSize = (item.fontSize || 16) + "px";
       el.appendChild(t);
     }
     let fileOpen = null;
@@ -523,8 +530,21 @@ export class ItemLayer {
     this.bar.hidden = false;
     const item = this._get(this.selected);
     this.bar.querySelector("#inkColor").value = item?.color || this.color;
-    const def = DEFAULT_OPACITY[item?.type] ?? 1;
-    this.bar.querySelector("#itemOpacity").value = Math.round((item?.opacity ?? def) * 100);
+    // When an item carries a buried link, the SAME opacity slider controls
+    // that link's preview visibility instead of the item's own fill — one
+    // discoverable control instead of a second one hidden in a popover.
+    const opInput = this.bar.querySelector("#itemOpacity");
+    if (item?.embed) {
+      opInput.value = Math.round((item.embed.showThumbnail ? item.embed.thumbnailOpacity ?? 1 : 0) * 100);
+      opInput.parentElement.querySelector("span").textContent = "preview";
+    } else {
+      const def = DEFAULT_OPACITY[item?.type] ?? 1;
+      opInput.value = Math.round((item?.opacity ?? def) * 100);
+      opInput.parentElement.querySelector("span").textContent = "opacity";
+    }
+    const fontRow = this.bar.querySelector(".item-bar__op--font");
+    fontRow.style.display = item?.type === "text" ? "" : "none";
+    this.bar.querySelector("#itemFontSize").value = item?.fontSize || 16;
     this.bar.querySelector('[data-act="geo"]').classList.toggle("is-on", !!item?.location);
     this.bar.querySelector('[data-act="embed"]').classList.toggle("is-on", !!item?.embed);
     this.positionBar();
@@ -555,6 +575,9 @@ export class ItemLayer {
     );
     this.bar.querySelector("#itemOpacity").addEventListener("input", (e) =>
       this.setOpacity(e.target.value / 100)
+    );
+    this.bar.querySelector("#itemFontSize").addEventListener("input", (e) =>
+      this.setFontSize(Number(e.target.value))
     );
     this.bar.querySelector('[data-act="draw"]').addEventListener("click", () => {
       this.drawMode = !this.drawMode;
@@ -634,9 +657,50 @@ export class ItemLayer {
   setOpacity(op) {
     const item = this._get(this.selected);
     if (!item) return;
-    item.opacity = op;
-    this._applyFill(this.nodes.get(item.id), item);
+    const el = this.nodes.get(item.id);
+    if (item.embed) {
+      // Doubles as the buried link's preview control (see _showBar) — one
+      // slider that's always visible, instead of a second one hidden away
+      // in the attach-link popover.
+      item.embed.showThumbnail = op > 0.02;
+      item.embed.thumbnailOpacity = Math.max(op, 0.02);
+      this._applyEmbedThumb(el, item);
+    } else {
+      item.opacity = op;
+      this._applyFill(el, item);
+    }
     save();
+  }
+
+  setFontSize(size) {
+    const item = this._get(this.selected);
+    if (!item || item.type !== "text") return;
+    item.fontSize = size;
+    const body = this.nodes.get(item.id)?.querySelector(".text-body");
+    if (body) body.style.fontSize = size + "px";
+    save();
+  }
+
+  // Adds/updates/removes an item's embed-preview wash in place, without a
+  // full _reRender (which would rebuild the whole node — noticeably janky
+  // on every tick while the opacity slider is being dragged).
+  _applyEmbedThumb(el, item) {
+    if (!el) return;
+    let layer = el.querySelector(".embed-thumb-layer");
+    const isYt = item.embed && isYoutubeEmbed(item.embed);
+    const previewUrl = item.embed && (isYt ? item.embed.thumbnailUrl : item.embed.faviconUrl);
+    if (!item.embed?.showThumbnail || !previewUrl) {
+      layer?.remove();
+      return;
+    }
+    if (!layer) {
+      layer = document.createElement("div");
+      layer.className = "embed-thumb-layer";
+      el.insertBefore(layer, el.querySelector(".embed-badge") || el.firstChild);
+    }
+    layer.classList.toggle("embed-thumb-layer--icon", !isYt);
+    layer.style.backgroundImage = `url(${previewUrl})`;
+    layer.style.opacity = item.embed.thumbnailOpacity ?? 1;
   }
 
   attachNote() {
@@ -775,13 +839,18 @@ export class ItemLayer {
           });
           return;
         }
+        // A tap SELECTS first; only a second tap on an already-selected item
+        // activates it (plays / opens). Otherwise the first touch on a link
+        // item would always fire off to a webpage before you ever got the
+        // chance to just select it — no way to tell "go there" from "edit
+        // this" apart. Same reasoning toggleExpand already used for notes.
         if (moved) {
           save();
         } else if (wasSelected && this._children(item.id).length) {
           this.toggleExpand(item);
-        } else if (tappedPoster && item.type === "youtube") {
+        } else if (wasSelected && tappedPoster && item.type === "youtube") {
           this._setYtPlaying(el.querySelector(".yt-card"), item, true);
-        } else if (item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
+        } else if (wasSelected && item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
           this._activateEmbed(embedOverlay, item);
         }
       };

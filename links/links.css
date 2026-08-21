@@ -25,6 +25,7 @@
   width: 100%;
 }
 .link-pop__err { margin: 0; font-size: 11px; color: #b04b4b; }
+.link-pop__hint { margin: 0; font-size: 11px; color: var(--ink); opacity: .6; }
 .link-pop__toggle {
   display: flex; align-items: center; gap: 7px;
   font-size: 12.5px; color: var(--ink); cursor: pointer;
