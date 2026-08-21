@@ -114,13 +114,6 @@
   margin: -4px 0 6px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.pocket-card__geo {
-  display: block; width: 100%; text-align: left;
-  border: none; background: transparent;
-  font-size: 12px; color: var(--accent);
-  padding: 2px 0 8px; cursor: pointer;
-}
-.pocket-card__geo--empty { color: var(--ink-faint, #9a927a); }
 .pocket-card__row { display: flex; gap: 8px; }
 .pocket-card__row button[data-act="place"] {
   flex: 1;

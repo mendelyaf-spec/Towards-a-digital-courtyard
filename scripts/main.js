@@ -138,17 +138,15 @@ pocket = new PocketPanel({
   // the item centers on the current view as usual.
   onPlace: async (record, dropPos) => {
     if (record.kind === "photo") {
-      // Route through the same cut-out studio as the toolbar, carrying the
-      // pocket photo's location (often read from its EXIF GPS) onto the item.
+      // Route through the same cut-out studio as the toolbar.
       await studio.open(record.blob, (dataURL, w, h) =>
-        placeCutout(dataURL, w, h, { ...(record.location ? { location: record.location } : {}), ...(dropPos ? { nearCenter: dropPos } : {}) })
+        placeCutout(dataURL, w, h, dropPos ? { nearCenter: dropPos } : {})
       );
     } else if (record.kind === "youtube") {
       layer.add("youtube", {
         videoId: record.videoId,
         title: record.name,
         thumbnailUrl: record.thumbnailUrl,
-        location: record.location || undefined,
         ...(dropPos ? { nearCenter: dropPos } : {}),
       });
     } else if (record.kind === "link") {
@@ -157,7 +155,6 @@ pocket = new PocketPanel({
         name: record.name,
         domain: record.domain,
         faviconUrl: record.faviconUrl,
-        location: record.location || undefined,
         ...(dropPos ? { nearCenter: dropPos } : {}),
       });
     } else {
@@ -165,7 +162,6 @@ pocket = new PocketPanel({
         pocketId: record.id,
         name: record.name,
         mime: record.mime,
-        location: record.location || undefined,
         ...(dropPos ? { nearCenter: dropPos } : {}),
       });
     }

@@ -12,7 +12,6 @@
 // — see ItemLayer's `resolveFileUrl` hook in scripts/items.js.
 
 import { newId } from "../scripts/store.js";
-import { openGeotagPopover, formatCoords } from "../geotag/geotag.js";
 import { youtubeEmbedUrl } from "../youtube/youtube.js";
 import { openLinkPrompt } from "../links/links.js";
 
@@ -43,15 +42,9 @@ function kindOf(file) {
   return "doc";
 }
 
-/** Add a File to a canvas's pocket. Auto-tags location from a photo's EXIF GPS, if present. */
+/** Add a File to a canvas's pocket. */
 export async function addToPocket(canvasId, file) {
   const kind = kindOf(file);
-  let location = null;
-  if (kind === "photo") {
-    const { extractExifGPS } = await import("../geotag/geotag.js");
-    const gps = await extractExifGPS(file).catch(() => null);
-    if (gps) location = { ...gps, label: "", source: "exif" };
-  }
   const record = {
     id: newId(),
     canvasId,
@@ -61,7 +54,6 @@ export async function addToPocket(canvasId, file) {
     size: file.size,
     blob: file,
     createdAt: Date.now(),
-    location,
   };
   const db = await openDB();
   await new Promise((resolve, reject) => {
@@ -87,7 +79,6 @@ export async function addLinkToPocket(canvasId, link) {
           url: link.url,
           thumbnailUrl: link.thumbnailUrl,
           createdAt: Date.now(),
-          location: null,
         }
       : {
           id: newId(), canvasId, kind: "link",
@@ -96,7 +87,6 @@ export async function addLinkToPocket(canvasId, link) {
           domain: link.domain,
           faviconUrl: link.faviconUrl,
           createdAt: Date.now(),
-          location: null,
         };
   const db = await openDB();
   await new Promise((resolve, reject) => {
@@ -147,19 +137,6 @@ export async function removeFromPocket(id) {
   });
 }
 
-export async function setPocketLocation(id, location) {
-  const rec = await getPocketItem(id);
-  if (!rec) return;
-  rec.location = location;
-  const db = await openDB();
-  await new Promise((resolve, reject) => {
-    const tx = db.transaction(STORE, "readwrite");
-    tx.objectStore(STORE).put(rec);
-    tx.oncomplete = resolve;
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
 /**
  * Send a canvas item back into the pocket — the reverse of "add to canvas".
  * Returns true if it was handled (caller should then remove the item from
@@ -190,7 +167,6 @@ export async function sendItemToPocket(canvasId, item) {
   } else {
     return false; // rect/circle/text/notes have no pocket equivalent
   }
-  if (newRecordId && item.location) await setPocketLocation(newRecordId, item.location);
   return true;
 }
 
@@ -307,12 +283,6 @@ export class PocketPanel {
     } else if (act === "place") {
       const record = await getPocketItem(id);
       if (record) this.onPlace(record);
-    } else if (act === "geo") {
-      const record = await getPocketItem(id);
-      openGeotagPopover(e.target, record?.location || null, async (loc) => {
-        await setPocketLocation(id, loc);
-        this.refresh();
-      });
     }
   }
 
@@ -409,9 +379,6 @@ function cardHTML(meta) {
         >${meta.kind === "photo" || hasInlineThumb ? "" : icon}</button>
       <div class="pocket-card__name" title="${escapeHtml(meta.name)}">${escapeHtml(meta.name)}</div>
       ${isLink ? `<div class="pocket-card__domain">${escapeHtml(meta.domain || "")}</div>` : ""}
-      ${meta.location
-        ? `<button type="button" class="pocket-card__geo" data-act="geo">📍 ${escapeHtml(meta.location.label || formatCoords(meta.location))}</button>`
-        : `<button type="button" class="pocket-card__geo pocket-card__geo--empty" data-act="geo">📍 tag location</button>`}
       <div class="pocket-card__row">
         <button type="button" data-act="place">add to canvas</button>
         <button type="button" class="pocket-card__del" data-act="delete" aria-label="Delete">×</button>

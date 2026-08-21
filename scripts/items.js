@@ -6,7 +6,6 @@
 // full items, so the nesting goes as deep as you like.
 
 import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js";
-import { openGeotagPopover, formatCoords } from "../geotag/geotag.js";
 import { youtubeEmbedUrl } from "../youtube/youtube.js";
 import { pushUndoSnapshot, resetUndo, canUndo, popUndoSnapshot } from "./undo.js";
 
@@ -289,14 +288,6 @@ export class ItemLayer {
       el.appendChild(embedOverlay);
     }
 
-    // Geotag pin — shown on any item with a saved location.
-    const geo = document.createElement("button");
-    geo.type = "button";
-    geo.className = "geo-badge";
-    geo.title = "Where this lived";
-    geo.textContent = "📍";
-    el.appendChild(geo);
-
     // Ink overlay (freehand drawing). Stretches with the item.
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "ink");
@@ -322,23 +313,11 @@ export class ItemLayer {
     el.appendChild(handle);
 
     this._applyFill(el, item);
-    this._wire(el, item, { svg, handle, del, badge, geo, fileOpen, linkOpen, ytPoster, embedOverlay });
+    this._wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, ytPoster, embedOverlay });
     this.world.appendChild(el);
     this.nodes.set(item.id, el);
     this._updateBadge(item);
-    this._updateGeoBadge(item);
     return el;
-  }
-
-  _updateGeoBadge(item) {
-    const el = this.nodes.get(item.id);
-    if (!el) return;
-    const geo = el.querySelector(".geo-badge");
-    if (!geo) return;
-    geo.style.display = item.location ? "" : "none";
-    geo.title = item.location
-      ? `${item.location.label || "Where this lived"} — ${formatCoords(item.location)}`
-      : "Where this lived";
   }
 
   // Fades just the shape's fill / wash — text, ink, image, and controls
@@ -569,7 +548,6 @@ export class ItemLayer {
     const fontRow = this.bar.querySelector(".item-bar__op--font");
     fontRow.style.display = item?.type === "text" ? "" : "none";
     this.bar.querySelector("#itemFontSize").value = item?.fontSize || 16;
-    this.bar.querySelector('[data-act="geo"]').classList.toggle("is-on", !!item?.location);
     this.bar.querySelector('[data-act="embed"]').classList.toggle("is-on", !!item?.embed);
     this.positionBar();
   }
@@ -621,17 +599,6 @@ export class ItemLayer {
     this.bar.querySelector('[data-act="duplicate"]').addEventListener("click", () => {
       const item = this._get(this.selected);
       if (item) this.duplicate(item);
-    });
-    this.bar.querySelector('[data-act="geo"]').addEventListener("click", (e) => {
-      const item = this._get(this.selected);
-      if (!item) return;
-      openGeotagPopover(e.currentTarget, item.location || null, (loc) => {
-        pushUndoSnapshot();
-        if (loc) item.location = loc;
-        else delete item.location;
-        this._updateGeoBadge(item);
-        save();
-      });
     });
     this.bar.querySelector('[data-act="embed"]').addEventListener("click", async (e) => {
       const anchorEl = e.currentTarget; // capture before the await — currentTarget goes null once dispatch ends
@@ -772,20 +739,8 @@ export class ItemLayer {
   }
 
   // ---------- per-item interaction ----------
-  _wire(el, item, { svg, handle, del, badge, geo, fileOpen, linkOpen, ytPoster, embedOverlay }) {
+  _wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, ytPoster, embedOverlay }) {
     badge.style.pointerEvents = "none";
-
-    // Geotag pin — click to view/edit where this item's subject lived.
-    geo.addEventListener("pointerdown", (e) => e.stopPropagation());
-    geo.addEventListener("click", (e) => {
-      e.stopPropagation();
-      openGeotagPopover(geo, item.location || null, (loc) => {
-        if (loc) item.location = loc;
-        else delete item.location;
-        this._updateGeoBadge(item);
-        save();
-      });
-    });
 
     // File cards (docs/videos placed from the pocket) open on their own button.
     if (fileOpen) {
@@ -813,7 +768,7 @@ export class ItemLayer {
     // item.embed, plays the video — but a drag still moves the item first,
     // since a tap is only decided by whether the pointer actually moved.
     el.addEventListener("pointerdown", (e) => {
-      if (e.target === handle || e.target === del || e.target === geo || e.target === fileOpen || e.target === linkOpen) return;
+      if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen) return;
       if (e.target.isContentEditable) return; // editing text
       if (embedOverlay?.classList.contains("is-active") || e.target.closest?.(".yt-card__iframe, .embed-overlay__iframe, .yt-card__shrink, .embed-overlay__close")) return; // let the live embed / its controls handle their own input
       e.stopPropagation();
