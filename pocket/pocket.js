@@ -320,7 +320,10 @@ export class PocketPanel {
       return;
     }
     if (rec.kind === "youtube") {
-      this.previewBody.innerHTML = `<iframe class="pocket-preview__yt" src="${youtubeEmbedUrl(rec.videoId, { autoplay: true })}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen frameborder="0"></iframe>`;
+      // No fullscreen permission, deliberately: it would hide this modal's own
+      // close button (outside the iframe, so nothing we can fix once native
+      // fullscreen takes over) with no reliable way back on every device.
+      this.previewBody.innerHTML = `<iframe class="pocket-preview__yt" src="${youtubeEmbedUrl(rec.videoId, { autoplay: true })}" allow="autoplay; encrypted-media; picture-in-picture" frameborder="0"></iframe>`;
       this.preview.hidden = false;
       return;
     }

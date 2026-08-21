@@ -350,11 +350,19 @@ export class ItemLayer {
 
   // Shared by the dedicated 'youtube' item's poster AND any item carrying a
   // "buried" item.embed — both just need an iframe + a way to stop it.
+  //
+  // Deliberately NOT allowing fullscreen: the browser's Fullscreen API
+  // replaces the entire screen with just the fullscreened element's own
+  // subtree — nothing outside it (including our close button, which lives
+  // outside the iframe, since it's foreign YouTube content we can't inject
+  // into) can render on top. Once someone taps the player's own fullscreen
+  // button there is no way back except the OS/browser's own exit gesture,
+  // which isn't reliable across every device — so this content never enters
+  // true fullscreen, keeping our own close button always reachable instead.
   _buildEmbedIframe(videoId, onClose) {
     const iframe = document.createElement("iframe");
     iframe.src = youtubeEmbedUrl(videoId, { autoplay: true });
-    iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
-    iframe.allowFullscreen = true;
+    iframe.allow = "autoplay; encrypted-media; picture-in-picture";
     iframe.setAttribute("frameborder", "0");
     const close = document.createElement("button");
     close.type = "button";
@@ -498,6 +506,10 @@ export class ItemLayer {
     this.bar.querySelector('[data-act="note"]').addEventListener("click", () =>
       this.attachNote()
     );
+    this.bar.querySelector('[data-act="duplicate"]').addEventListener("click", () => {
+      const item = this._get(this.selected);
+      if (item) this.duplicate(item);
+    });
     this.bar.querySelector('[data-act="geo"]').addEventListener("click", (e) => {
       const item = this._get(this.selected);
       if (!item) return;
@@ -582,6 +594,24 @@ export class ItemLayer {
     this._updateBadge(parent);
     this._applyVisibility();
     return note;
+  }
+
+  // Clone an item — everything about it (color, opacity, strokes, location,
+  // embed…) except its id and position, offset a little so the copy is
+  // visibly distinct rather than sitting exactly on top of the original.
+  // A duplicate never carries over the original's own attached notes — it
+  // starts fresh, even if the original had children.
+  duplicate(item) {
+    const clone = JSON.parse(JSON.stringify(item));
+    clone.id = newId();
+    clone.x = item.x + 24;
+    clone.y = item.y + 24;
+    delete clone.expanded;
+    const added = addItem(clone);
+    this._render(added);
+    this._applyVisibility();
+    this.select(added.id);
+    return added;
   }
 
   // ---------- per-item interaction ----------
@@ -740,11 +770,16 @@ export class ItemLayer {
       handle.addEventListener("pointerup", onUp);
     });
 
-    // Delete this item and everything attached beneath it.
+    // Delete this item and everything attached beneath it — confirm first,
+    // since there's no undo once it's gone.
     del.addEventListener("pointerdown", (e) => e.stopPropagation());
     del.addEventListener("click", (e) => {
       e.stopPropagation();
-      this.remove(item.id);
+      const noteCount = this._descendants(item.id).length;
+      const msg = noteCount
+        ? `Delete this and its ${noteCount} attached note${noteCount === 1 ? "" : "s"}? This can't be undone.`
+        : "Delete this? This can't be undone.";
+      if (confirm(msg)) this.remove(item.id);
     });
   }
 
