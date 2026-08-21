@@ -13,9 +13,12 @@ const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
 
 // Base fill color (as r,g,b) per item type, matching the CSS defaults, so
-// the opacity slider can fade the fill without touching its content.
-const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", text: "255,253,247", file: "239,231,210", link: "251,248,242" };
-const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 0.82, image: 1, file: 1, youtube: 1, link: 1 };
+// the opacity slider can fade the fill without touching its content. Text
+// isn't here — its background is its own explicit item.bgColor field (see
+// _applyFill), not a shared type default, since text color and text
+// background are two independently-editable things, not one "fill."
+const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", file: "239,231,210", link: "251,248,242" };
+const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 1, image: 1, file: 1, youtube: 1, link: 1 };
 
 function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || "");
@@ -188,7 +191,10 @@ export class ItemLayer {
       // imgScale/imgRotate/imgOffsetX/imgOffsetY pan/zoom/rotate the photo
       // *within* its box — independent of the box's own size (w/h).
       ...(type === "image" ? { imgScale: 1, imgRotate: 0, imgOffsetX: 0, imgOffsetY: 0 } : {}),
-      ...(type === "text" ? { text: text ?? "", color: this.color, fontSize: 16 } : {}),
+      // Black on white by default — not tied to whatever the ink/drawing
+      // color happens to be set to, which used to leave fresh notes in
+      // whatever color you last drew with.
+      ...(type === "text" ? { text: text ?? "", color: "#1a1a1a", bgColor: "#ffffff", fontSize: 16 } : {}),
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
       ...(type === "link" ? { url, name: name || domain || "link", domain: domain || "", faviconUrl: faviconUrl || "" } : {}),
@@ -374,6 +380,13 @@ export class ItemLayer {
     if (item.type === "image") {
       const img = el.querySelector("img");
       if (img) img.style.opacity = op;
+      return;
+    }
+    if (item.type === "text") {
+      // item.color is the text's own foreground — the background is its
+      // own separate field, not the same "fill" every other shape has.
+      const rgb = (item.bgColor && hexToRgb(item.bgColor)) || hexToRgb("#ffffff");
+      el.style.backgroundColor = `rgba(${rgb}, ${op})`;
       return;
     }
     const rgb = (item.color && hexToRgb(item.color)) || FILL_RGB[item.type];
@@ -617,7 +630,14 @@ export class ItemLayer {
   _showBar() {
     this.bar.hidden = false;
     const item = this._get(this.selected);
+    const inkColorRow = this.bar.querySelector("#inkColor").parentElement;
     this.bar.querySelector("#inkColor").value = item?.color || this.color;
+    inkColorRow.title = item?.type === "text" ? "Note text color" : "Choose color";
+    // A note gets a second, independent swatch for its own background —
+    // #inkColor above becomes specifically "text color" once one's selected.
+    const bgColorRow = this.bar.querySelector("#textBgColor").parentElement;
+    bgColorRow.style.display = item?.type === "text" ? "" : "none";
+    if (item?.type === "text") this.bar.querySelector("#textBgColor").value = item.bgColor || "#ffffff";
     // When an item carries a buried link, the SAME opacity slider controls
     // that link's preview visibility instead of the item's own fill — one
     // discoverable control instead of a second one hidden in a popover.
@@ -694,6 +714,7 @@ export class ItemLayer {
     // from one end to the other would flood the stack with dozens of steps.
     const snapshotOnce = () => pushUndoSnapshot();
     this.bar.querySelector("#inkColor").addEventListener("pointerdown", snapshotOnce);
+    this.bar.querySelector("#textBgColor").addEventListener("pointerdown", snapshotOnce);
     this.bar.querySelector("#itemOpacity").addEventListener("pointerdown", snapshotOnce);
     this.bar.querySelector("#itemFontSize").addEventListener("pointerdown", snapshotOnce);
     this.bar.querySelector("#itemImgZoom").addEventListener("pointerdown", snapshotOnce);
@@ -701,6 +722,9 @@ export class ItemLayer {
 
     this.bar.querySelector("#inkColor").addEventListener("input", (e) =>
       this.setColor(e.target.value)
+    );
+    this.bar.querySelector("#textBgColor").addEventListener("input", (e) =>
+      this.setBgColor(e.target.value)
     );
     this.bar.querySelector("#itemOpacity").addEventListener("input", (e) =>
       this.setOpacity(e.target.value / 100)
@@ -809,6 +833,17 @@ export class ItemLayer {
       this._applyFill(this.nodes.get(item.id), item);
       save();
     }
+  }
+
+  // A note's own background — separate from setColor's text-foreground
+  // color, so both are independently editable instead of one swatch
+  // fighting over what "color" means for a text item.
+  setBgColor(c) {
+    const item = this._get(this.selected);
+    if (!item || item.type !== "text") return;
+    item.bgColor = c;
+    this._applyFill(this.nodes.get(item.id), item);
+    save();
   }
 
   setOpacity(op) {

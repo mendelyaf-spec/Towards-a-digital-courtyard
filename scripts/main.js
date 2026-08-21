@@ -110,7 +110,7 @@ photoMenu.querySelectorAll(".photo-menu__item").forEach((item) => {
 // sized to fit its own aspect ratio. Shared by the toolbar's camera/upload
 // flow and by "add to canvas" on a pocket photo.
 function placeCutout(dataURL, w, h, extra = {}) {
-  if (bg.mode) { bg.add("image", { src: dataURL, parentId: bgParentTarget() }); return; }
+  if (bg.mode) { bg.add("image", { src: dataURL, parentId: bgParentTarget(), ...extra }); return; }
   const maxSide = 260;
   const ratio = w / h;
   layer.add("image", {
@@ -119,6 +119,13 @@ function placeCutout(dataURL, w, h, extra = {}) {
     h: Math.round(ratio >= 1 ? maxSide / ratio : maxSide),
     ...extra,
   });
+}
+// Studio's stage-2 "position it" pos ({scale, rotate, offsetX, offsetY}, or
+// null when that stage was skipped) becomes an image item/region's own
+// imgScale/imgRotate/imgOffsetX/imgOffsetY — the exact same fields either
+// one already exposes for editing again afterward.
+function posToExtra(pos) {
+  return pos ? { imgScale: pos.scale, imgRotate: pos.rotate, imgOffsetX: pos.offsetX, imgOffsetY: pos.offsetY } : {};
 }
 async function handlePhotoFile(file) {
   if (!file) return;
@@ -129,7 +136,15 @@ async function handlePhotoFile(file) {
     framePicker.open(file, (stillFrame) => handlePhotoFile(stillFrame));
     return;
   }
-  await studio.open(file, (dataURL, w, h) => placeCutout(dataURL, w, h));
+  // Stage 2 (pan/zoom/rotate before it's ever placed) only applies to a
+  // background photo — a regular item's box already fits the cutout's own
+  // aspect ratio, so there's nothing to crop into up front.
+  await studio.open(
+    file,
+    (dataURL, w, h, pos) => placeCutout(dataURL, w, h, posToExtra(pos)),
+    null,
+    { withPosition: bg.mode }
+  );
 }
 photoCamera.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
 photoUpload.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
@@ -149,8 +164,12 @@ pocket = new PocketPanel({
   onPlace: async (record, dropPos) => {
     if (record.kind === "photo") {
       // Route through the same cut-out studio as the toolbar.
-      await studio.open(record.blob, (dataURL, w, h) =>
-        placeCutout(dataURL, w, h, dropPos ? { nearCenter: dropPos } : {})
+      await studio.open(
+        record.blob,
+        (dataURL, w, h, pos) =>
+          placeCutout(dataURL, w, h, { ...posToExtra(pos), ...(dropPos ? { nearCenter: dropPos } : {}) }),
+        null,
+        { withPosition: bg.mode }
       );
     } else if (record.kind === "youtube") {
       layer.add("youtube", {

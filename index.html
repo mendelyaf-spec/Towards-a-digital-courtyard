@@ -115,6 +115,9 @@
     <label class="item-bar__color" title="Choose color">
       <input id="inkColor" type="color" value="#b04b4b" />
     </label>
+    <label class="item-bar__color item-bar__color--textbg" title="Note background color">
+      <input id="textBgColor" type="color" value="#ffffff" />
+    </label>
     <label class="item-bar__op" title="Fill opacity (or a buried link's preview, if this item has one)">
       <span>opacity</span>
       <input id="itemOpacity" type="range" min="0" max="100" value="100" />
@@ -176,18 +179,50 @@
   <!-- Shape-extraction studio -->
   <div id="studio" class="studio" hidden>
     <div class="studio__panel" role="dialog" aria-modal="true" aria-labelledby="studioTitle">
-      <h2 id="studioTitle" class="studio__title">cut out the shape</h2>
-      <p class="studio__hint">We trace the subject by clearing away the background. Drag the slider until the edges look right.</p>
-      <div class="studio__preview">
-        <canvas id="studioCanvas"></canvas>
+      <!-- Stage 1: trace the subject out of the photo. -->
+      <div id="studioCutoutStage">
+        <h2 id="studioTitle" class="studio__title">cut out the shape</h2>
+        <p class="studio__hint">We trace the subject by clearing away the background. Drag the slider until the edges look right.</p>
+        <div class="studio__preview">
+          <canvas id="studioCanvas"></canvas>
+        </div>
+        <label class="studio__control">
+          <span>background sensitivity</span>
+          <input id="tolerance" type="range" min="4" max="120" value="40" />
+        </label>
+        <div class="studio__actions">
+          <button id="studioCancel" class="btn btn--ghost" type="button">cancel</button>
+          <button id="studioNext" class="btn btn--solid" type="button">place on canvas</button>
+        </div>
       </div>
-      <label class="studio__control">
-        <span>background sensitivity</span>
-        <input id="tolerance" type="range" min="4" max="120" value="40" />
-      </label>
-      <div class="studio__actions">
-        <button id="studioCancel" class="btn btn--ghost" type="button">cancel</button>
-        <button id="studioPlace" class="btn btn--solid" type="button">place on canvas</button>
+
+      <!-- Stage 2 (background photos only): choose what actually shows,
+           before it ever lands on the canvas — pan/zoom/rotate, same
+           controls as editing it again afterward. Preview toggles the
+           editing chrome off for a clean look; paste only happens from
+           preview, and "back to edit" from there loops as many times as
+           you want before you commit. -->
+      <div id="studioPositionStage" hidden>
+        <h2 class="studio__title">position it</h2>
+        <p id="studioPositionHint" class="studio__hint">Drag the photo to reposition it, zoom and rotate to choose what shows — this is the section that becomes your background.</p>
+        <div id="studioFrame" class="studio__frame">
+          <img id="studioFrameImg" alt="" draggable="false" />
+          <div class="studio__frame-guide"></div>
+        </div>
+        <div class="studio__position-controls">
+          <label class="studio__control studio__control--inline">
+            <span>zoom</span>
+            <input id="studioZoom" type="range" min="50" max="300" value="100" />
+          </label>
+          <label class="studio__control studio__control--inline">
+            <span>rotate</span>
+            <input id="studioRotate" type="range" min="-180" max="180" value="0" />
+          </label>
+        </div>
+        <div class="studio__actions">
+          <button id="studioPosBack" class="btn btn--ghost" type="button">‹ back to cutout</button>
+          <button id="studioPosNext" class="btn btn--solid" type="button">preview →</button>
+        </div>
       </div>
     </div>
   </div>

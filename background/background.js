@@ -71,7 +71,7 @@ export class BackgroundLayer {
   }
 
   // ---------- creating ----------
-  add(shape, { src, parentId } = {}) {
+  add(shape, { src, parentId, imgScale, imgRotate, imgOffsetX, imgOffsetY } = {}) {
     const c = this.vp.centerWorld();
     const w = 320, h = 240;
     const item = {
@@ -86,9 +86,12 @@ export class BackgroundLayer {
       placing: true, // starts diaphanous, above content, awaiting "Set"
       ...(parentId ? { parentId } : {}),
       // imgScale/imgRotate/imgOffsetX/imgOffsetY crop the source photo within
-      // the region — independent of rotation/w/h, which shape the region itself.
+      // the region — independent of rotation/w/h, which shape the region
+      // itself. Optionally pre-chosen in the studio's "position it" step
+      // (see main.js's posToExtra) before this region even exists; default
+      // to untouched (1/0/0/0) otherwise, same as always.
       ...(shape === "image"
-        ? { src, imgScale: 1, imgRotate: 0, imgOffsetX: 0, imgOffsetY: 0 }
+        ? { src, imgScale: imgScale ?? 1, imgRotate: imgRotate ?? 0, imgOffsetX: imgOffsetX ?? 0, imgOffsetY: imgOffsetY ?? 0 }
         : { color: FILL[shape] || "#d7c4a3" }),
     };
     this.items.push(item);

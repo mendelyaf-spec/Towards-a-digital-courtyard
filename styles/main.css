@@ -246,7 +246,8 @@ html, body {
   background: transparent;
 }
 .item--text {
-  background: rgba(255, 253, 247, 0.82);
+  background: #ffffff; /* default — overridden per item by items.js via item.bgColor */
+  color: #1a1a1a; /* default — overridden per item by items.js via item.color */
   border: 1px dashed #c9bfa9;
   border-radius: 8px;
   display: flex;
@@ -594,6 +595,63 @@ html, body {
 }
 .studio__control input[type="range"] { width: 100%; accent-color: var(--accent); }
 .studio__actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* ---- stage 2: position it (backgrounds only — pan/zoom/rotate before it
+   ever lands on the canvas, not just afterward) ---- */
+.studio__frame {
+  position: relative;
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 4 / 3;
+  margin: 0 auto;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #ece5d3;
+  touch-action: none;
+  cursor: grab;
+}
+.studio__frame:active { cursor: grabbing; }
+#studioFrameImg {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.studio__frame-guide {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border: 2px dashed rgba(255, 255, 255, .75);
+  border-radius: 12px;
+  box-sizing: border-box;
+}
+.studio__position-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 16px 0;
+}
+.studio__position-controls .studio__control--inline {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+.studio__position-controls .studio__control--inline span { flex: none; width: 42px; }
+.studio__position-controls .studio__control--inline input[type="range"] { flex: 1; accent-color: var(--accent); }
+
+/* Preview: hide the editing chrome for a clean, unobstructed look at
+   exactly what will get pasted — the crop itself doesn't change (the
+   frame already clips to it live), only the controls around it do. */
+#studioPositionStage.is-previewing .studio__frame { cursor: default; }
+#studioPositionStage.is-previewing .studio__frame-guide { display: none; }
+#studioPositionStage.is-previewing .studio__position-controls { display: none; }
 
 /* ---------- Buttons ---------- */
 .btn {
