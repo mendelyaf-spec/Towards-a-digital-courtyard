@@ -132,10 +132,12 @@ export class ItemLayer {
   // { pocketId, name, mime, location } instead of src/text.
   // For type 'youtube', pass { videoId, title, thumbnailUrl, location }.
   // For type 'link' (any other URL), pass { url, name, domain, faviconUrl, location }.
+  // Either type also takes an optional thumbnailImage (data URL) or
+  // thumbnailText — a custom preview overriding the auto-detected one.
   // `near` places the item's top-left at a world point; `nearCenter` places
   // its CENTER there instead (used for "drag from the pocket and drop it
   // here") — works with whatever w/h ends up resolved, default or explicit.
-  add(type, { src, w, h, text, parentId, near, nearCenter, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl } = {}) {
+  add(type, { src, w, h, text, parentId, near, nearCenter, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl, thumbnailImage, thumbnailText } = {}) {
     pushUndoSnapshot();
     // Type-specific defaults must be resolved BEFORE the generic 160x160
     // fallback below, or `w || 160` there clobbers them and every text/file/
@@ -179,6 +181,7 @@ export class ItemLayer {
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
       ...(type === "link" ? { url, name: name || domain || "link", domain: domain || "", faviconUrl: faviconUrl || "" } : {}),
+      ...(type === "youtube" || type === "link" ? { thumbnailImage: thumbnailImage || null, thumbnailText: thumbnailText || null } : {}),
       ...(parentId ? { parentId } : {}),
       ...(location ? { location } : {}),
     });
@@ -224,21 +227,22 @@ export class ItemLayer {
       fileOpen = card.querySelector(".file-card__open");
     }
     let ytPoster = null;
+    let ytCard = null;
     if (item.type === "youtube") {
-      const ytCard = document.createElement("div");
+      ytCard = document.createElement("div");
       ytCard.className = "yt-card";
       ytPoster = this._buildYtPoster(item);
-      ytCard.append(ytPoster, ytTitleEl(item));
+      ytCard.append(ytPoster, ytTitleEl(item), this._buildYtEditBtn());
       el.appendChild(ytCard);
     }
     let linkOpen = null;
+    let linkEdit = null;
     if (item.type === "link") {
       const card = document.createElement("div");
       card.className = "link-card";
       const favicon = document.createElement("div");
       favicon.className = "link-card__favicon";
-      if (item.faviconUrl) favicon.style.backgroundImage = `url(${item.faviconUrl})`;
-      else favicon.textContent = "🔗";
+      this._setLinkFavicon(favicon, item);
       const text = document.createElement("div");
       text.className = "link-card__text";
       const title = document.createElement("div");
@@ -248,11 +252,16 @@ export class ItemLayer {
       domain.className = "link-card__domain";
       domain.textContent = item.domain || "";
       text.append(title, domain);
+      linkEdit = document.createElement("button");
+      linkEdit.type = "button";
+      linkEdit.className = "link-card__edit";
+      linkEdit.title = "Edit this link or its thumbnail";
+      linkEdit.textContent = "✎";
       linkOpen = document.createElement("button");
       linkOpen.type = "button";
       linkOpen.className = "link-card__open";
       linkOpen.textContent = "open";
-      card.append(favicon, text, linkOpen);
+      card.append(favicon, text, linkEdit, linkOpen);
       el.appendChild(card);
     }
 
@@ -267,12 +276,15 @@ export class ItemLayer {
     let embedOverlay = null;
     if (item.embed) {
       const isYt = isYoutubeEmbed(item.embed);
-      const previewUrl = isYt ? item.embed.thumbnailUrl : item.embed.faviconUrl;
-      if (item.embed.showThumbnail && previewUrl) {
+      const v = embedThumbVisual(item.embed);
+      if (item.embed.showThumbnail && v.has) {
         const thumbLayer = document.createElement("div");
         thumbLayer.className = "embed-thumb-layer";
-        if (!isYt) thumbLayer.classList.add("embed-thumb-layer--icon"); // a favicon shouldn't stretch to cover
-        thumbLayer.style.backgroundImage = `url(${previewUrl})`;
+        thumbLayer.classList.toggle("embed-thumb-layer--icon", v.iconMode);
+        thumbLayer.classList.toggle("embed-thumb-layer--text", !!v.text);
+        if (v.image) thumbLayer.style.backgroundImage = `url(${v.image})`;
+        else if (v.text) thumbLayer.textContent = v.text;
+        else thumbLayer.style.backgroundImage = `url(${v.url})`;
         thumbLayer.style.opacity = item.embed.thumbnailOpacity ?? 1;
         el.appendChild(thumbLayer);
       }
@@ -313,7 +325,7 @@ export class ItemLayer {
     el.appendChild(handle);
 
     this._applyFill(el, item);
-    this._wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, ytPoster, embedOverlay });
+    this._wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay });
     this.world.appendChild(el);
     this.nodes.set(item.id, el);
     this._updateBadge(item);
@@ -344,12 +356,49 @@ export class ItemLayer {
     const poster = document.createElement("button");
     poster.type = "button";
     poster.className = "yt-card__poster";
-    if (item.thumbnailUrl) poster.style.backgroundImage = `url(${item.thumbnailUrl})`;
+    if (item.thumbnailImage) {
+      poster.style.backgroundImage = `url(${item.thumbnailImage})`;
+    } else if (item.thumbnailText) {
+      const label = document.createElement("span");
+      label.className = "yt-card__poster-label";
+      label.textContent = item.thumbnailText;
+      poster.appendChild(label);
+    } else if (item.thumbnailUrl) {
+      poster.style.backgroundImage = `url(${item.thumbnailUrl})`;
+    }
     const play = document.createElement("span");
     play.className = "yt-card__play";
     play.textContent = "▶";
     poster.appendChild(play);
     return poster;
+  }
+
+  // A custom photo/label overrides the auto-detected favicon on a dedicated
+  // link item's card — same override a buried embed's preview also honors.
+  _setLinkFavicon(el, item) {
+    el.style.backgroundImage = "";
+    el.textContent = "";
+    el.classList.remove("link-card__favicon--text");
+    if (item.thumbnailImage) {
+      el.style.backgroundImage = `url(${item.thumbnailImage})`;
+    } else if (item.thumbnailText) {
+      el.classList.add("link-card__favicon--text");
+      el.textContent = item.thumbnailText.slice(0, 2).toUpperCase();
+      el.title = item.thumbnailText;
+    } else if (item.faviconUrl) {
+      el.style.backgroundImage = `url(${item.faviconUrl})`;
+    } else {
+      el.textContent = "🔗";
+    }
+  }
+
+  _buildYtEditBtn() {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "yt-card__edit";
+    btn.title = "Edit this link or its thumbnail";
+    btn.textContent = "✎";
+    return btn;
   }
 
   // Hitting play grows the item to a big, easy-to-watch size by default (you
@@ -360,7 +409,7 @@ export class ItemLayer {
     const el = card.closest(".item");
     if (!playing) {
       card.innerHTML = "";
-      card.append(this._buildYtPoster(item), ytTitleEl(item));
+      card.append(this._buildYtPoster(item), ytTitleEl(item), this._buildYtEditBtn());
       if (this._activeEmbed?.item === item) this._activeEmbed = null;
       if (item._preBigSize) {
         Object.assign(item, item._preBigSize);
@@ -696,9 +745,8 @@ export class ItemLayer {
   _applyEmbedThumb(el, item) {
     if (!el) return;
     let layer = el.querySelector(".embed-thumb-layer");
-    const isYt = item.embed && isYoutubeEmbed(item.embed);
-    const previewUrl = item.embed && (isYt ? item.embed.thumbnailUrl : item.embed.faviconUrl);
-    if (!item.embed?.showThumbnail || !previewUrl) {
+    const v = item.embed && embedThumbVisual(item.embed);
+    if (!item.embed?.showThumbnail || !v?.has) {
       layer?.remove();
       return;
     }
@@ -707,8 +755,11 @@ export class ItemLayer {
       layer.className = "embed-thumb-layer";
       el.insertBefore(layer, el.querySelector(".embed-badge") || el.firstChild);
     }
-    layer.classList.toggle("embed-thumb-layer--icon", !isYt);
-    layer.style.backgroundImage = `url(${previewUrl})`;
+    layer.classList.toggle("embed-thumb-layer--icon", v.iconMode);
+    layer.classList.toggle("embed-thumb-layer--text", !!v.text);
+    if (v.image) { layer.style.backgroundImage = `url(${v.image})`; layer.textContent = ""; }
+    else if (v.text) { layer.style.backgroundImage = ""; layer.textContent = v.text; }
+    else { layer.style.backgroundImage = `url(${v.url})`; layer.textContent = ""; }
     layer.style.opacity = item.embed.thumbnailOpacity ?? 1;
   }
 
@@ -746,7 +797,7 @@ export class ItemLayer {
   }
 
   // ---------- per-item interaction ----------
-  _wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, ytPoster, embedOverlay }) {
+  _wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay }) {
     badge.style.pointerEvents = "none";
 
     // File cards (docs/videos placed from the pocket) open on their own button.
@@ -770,12 +821,66 @@ export class ItemLayer {
       });
     }
 
+    // A dedicated link item's own edit button — change the URL and/or swap
+    // in a custom thumbnail (photo or short label) instead of the favicon.
+    if (linkEdit) {
+      linkEdit.addEventListener("pointerdown", (e) => e.stopPropagation());
+      linkEdit.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const { openLinkPrompt } = await import("../links/links.js");
+        openLinkPrompt(
+          linkEdit,
+          (link) => {
+            pushUndoSnapshot();
+            item.url = link.url;
+            item.name = link.title || link.domain;
+            item.domain = link.domain;
+            item.faviconUrl = link.faviconUrl;
+            item.thumbnailImage = link.thumbnailImage || null;
+            item.thumbnailText = link.thumbnailText || null;
+            save();
+            this._reRender(item);
+          },
+          { kind: "link", url: item.url, title: item.name, domain: item.domain, faviconUrl: item.faviconUrl, thumbnailImage: item.thumbnailImage, thumbnailText: item.thumbnailText }
+        );
+      });
+    }
+
+    // A dedicated YouTube item's edit button — delegated on the card, not
+    // bound to one poster instance, since play/stop rebuilds the card's
+    // contents (see _setYtPlaying) and a direct reference would go stale.
+    if (ytCard) {
+      ytCard.addEventListener("pointerdown", (e) => {
+        if (e.target.closest(".yt-card__edit")) e.stopPropagation();
+      });
+      ytCard.addEventListener("click", async (e) => {
+        const btn = e.target.closest(".yt-card__edit");
+        if (!btn) return;
+        e.stopPropagation();
+        const { openLinkPrompt } = await import("../links/links.js");
+        openLinkPrompt(
+          btn,
+          (link) => {
+            pushUndoSnapshot();
+            item.videoId = link.videoId;
+            item.title = link.title || item.title;
+            item.thumbnailUrl = link.thumbnailUrl || item.thumbnailUrl;
+            item.thumbnailImage = link.thumbnailImage || null;
+            item.thumbnailText = link.thumbnailText || null;
+            save();
+            this._reRender(item);
+          },
+          { kind: "youtube", videoId: item.videoId, title: item.title, thumbnailUrl: item.thumbnailUrl, thumbnailImage: item.thumbnailImage, thumbnailText: item.thumbnailText }
+        );
+      });
+    }
+
     // Body: draw, move, or tap-to-toggle depending on mode/state. A tap (no
     // movement) on a YouTube poster, or on any item carrying a buried
     // item.embed, plays the video — but a drag still moves the item first,
     // since a tap is only decided by whether the pointer actually moved.
     el.addEventListener("pointerdown", (e) => {
-      if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen) return;
+      if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen || e.target === linkEdit || e.target.closest?.(".yt-card__edit")) return;
       if (e.target.isContentEditable) return; // editing text
       if (embedOverlay?.classList.contains("is-active") || e.target.closest?.(".yt-card__iframe, .embed-overlay__iframe, .yt-card__shrink, .embed-overlay__close")) return; // let the live embed / its controls handle their own input
       e.stopPropagation();
@@ -1000,6 +1105,18 @@ function ytTitleEl(item) {
 // explicit kind:'youtube', so existing saved canvases keep working.
 function isYoutubeEmbed(embed) {
   return !embed.kind || embed.kind === "youtube";
+}
+
+// What a buried embed's preview wash should actually show: a custom photo
+// or label always wins over the auto-detected video thumbnail/favicon. Only
+// a real thumbnail (video frame, or a custom photo) should stretch to cover
+// the item — a bare favicon or a text label stay icon-sized instead.
+function embedThumbVisual(embed) {
+  const isYt = isYoutubeEmbed(embed);
+  const image = embed.thumbnailImage || null;
+  const text = !image ? embed.thumbnailText || null : null;
+  const url = !image && !text ? (isYt ? embed.thumbnailUrl : embed.faviconUrl) : null;
+  return { image, text, url, iconMode: !isYt && !image, has: !!(image || text || url) };
 }
 
 // ---- stroke helpers ----

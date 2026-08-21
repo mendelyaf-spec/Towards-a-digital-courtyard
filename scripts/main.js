@@ -147,6 +147,8 @@ pocket = new PocketPanel({
         videoId: record.videoId,
         title: record.name,
         thumbnailUrl: record.thumbnailUrl,
+        thumbnailImage: record.thumbnailImage,
+        thumbnailText: record.thumbnailText,
         ...(dropPos ? { nearCenter: dropPos } : {}),
       });
     } else if (record.kind === "link") {
@@ -155,6 +157,8 @@ pocket = new PocketPanel({
         name: record.name,
         domain: record.domain,
         faviconUrl: record.faviconUrl,
+        thumbnailImage: record.thumbnailImage,
+        thumbnailText: record.thumbnailText,
         ...(dropPos ? { nearCenter: dropPos } : {}),
       });
     } else {
@@ -175,9 +179,9 @@ const linkBtn = document.getElementById("linkBtn");
 linkBtn.addEventListener("click", () => {
   openLinkPrompt(linkBtn, (link) => {
     if (link.kind === "youtube") {
-      layer.add("youtube", { videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl });
+      layer.add("youtube", { videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, thumbnailImage: link.thumbnailImage, thumbnailText: link.thumbnailText });
     } else {
-      layer.add("link", { url: link.url, name: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl });
+      layer.add("link", { url: link.url, name: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, thumbnailImage: link.thumbnailImage, thumbnailText: link.thumbnailText });
     }
   });
 });

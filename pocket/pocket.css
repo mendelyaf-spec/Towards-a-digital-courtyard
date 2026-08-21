@@ -84,6 +84,15 @@
   color: var(--ink);
 }
 .pocket-card[data-kind] .pocket-card__thumb { background-color: #ece5d3; }
+/* A custom thumbnailText override — too little room for a full label at
+   this size, so it shrinks down from the icon-sized default font. */
+.pocket-card__thumb--text {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px;
+  text-align: center;
+  word-break: break-word;
+}
 
 /* Follows the pointer while dragging a card out onto the canvas. */
 .pocket-drag-ghost {
@@ -121,6 +130,11 @@
   font-size: 12.5px; font-weight: 600;
   border-radius: 8px; padding: 8px; cursor: pointer;
 }
+.pocket-card__edit {
+  border: 1px solid var(--line); background: transparent; color: var(--ink);
+  width: 30px; border-radius: 8px; cursor: pointer; font-size: 13px;
+}
+.pocket-card__edit:hover { background: rgba(0,0,0,.05); }
 .pocket-card__del {
   border: none; background: rgba(176, 75, 75, .1); color: #b04b4b;
   width: 30px; border-radius: 8px; cursor: pointer; font-size: 15px;

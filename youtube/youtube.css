@@ -2,10 +2,10 @@
    popover lives in links/links.css, shared across all link types. */
 
 /* Rounding + clipping live on .yt-card, NOT on .item--youtube: the delete
-   button, resize handle, geo pin, and note badge all poke outside the item's
-   own box by design (negative offsets) — overflow:hidden on the item itself
-   would silently clip them away. They'd still exist in the DOM with a
-   plausible bounding box, just never actually painted or clickable there. */
+   button, resize handle, and note badge all poke outside the item's own box
+   by design (negative offsets) — overflow:hidden on the item itself would
+   silently clip them away. They'd still exist in the DOM with a plausible
+   bounding box, just never actually painted or clickable there. */
 .item--youtube { background: #17181a; border-radius: 10px; }
 .yt-card {
   position: relative; width: 100%; height: 100%;
@@ -40,6 +40,31 @@
   background: #101012;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* A custom thumbnailText override, shown in place of the video's real
+   thumbnail — same corner the poster's play button already occupies, so it
+   reads as "this is what's here" rather than a second overlapping label. */
+.yt-card__poster-label {
+  position: absolute;
+  inset: 8px 34px auto 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0,0,0,.6);
+  word-break: break-word;
+}
+.yt-card__edit {
+  position: absolute;
+  top: 6px; right: 6px;
+  z-index: 2;
+  border: none;
+  background: rgba(15, 15, 16, 0.72);
+  color: #fff;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+}
 .yt-card__iframe { flex: 1; width: 100%; border: none; }
 .yt-card__shrink {
   position: absolute;
@@ -70,6 +95,20 @@
 .embed-thumb-layer--icon {
   background-size: 40% auto;
   background-repeat: no-repeat;
+}
+/* A custom thumbnailText override — no image to show, just a short label
+   centered over the item's own content. */
+.embed-thumb-layer--text {
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(20, 18, 14, .55);
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0,0,0,.5);
+  word-break: break-word;
 }
 
 /* Small, quiet corner indicator — the item otherwise looks exactly like its

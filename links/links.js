@@ -51,21 +51,124 @@ export async function resolveLink(input) {
   return { kind: "link", title: "", faviconUrl: faviconUrl(url), domain: domainOf(url), url };
 }
 
+// ---------------- shared "custom thumbnail" control ----------------
+// A generic link's preview is normally auto-detected (a YouTube frame's
+// thumbnail, or the page's favicon) — but a favicon is often useless (e.g.
+// the generic Web Archive icon), so both link popovers below offer a way to
+// swap in a photo of your own, or just a short label, instead. Mutually
+// exclusive: picking one clears the other. Neither is required — leaving
+// both blank keeps the auto-detected preview.
+const THUMB_MAX = 240; // px on the long edge — plenty for a card-sized preview, keeps the stored data URL small
+
+function resizeImageFile(file, maxSize) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onerror = () => reject(new Error("Couldn't read that image"));
+    img.onload = () => {
+      const scale = Math.min(1, maxSize / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale));
+      const h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", 0.85));
+    };
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error);
+    reader.onload = () => { img.src = reader.result; };
+    reader.readAsDataURL(file);
+  });
+}
+
+function thumbControlsHTML() {
+  return `
+    <div class="link-pop__thumb">
+      <div class="link-pop__thumb-preview"></div>
+      <div class="link-pop__thumb-controls">
+        <button type="button" class="link-pop__thumb-btn" data-act="thumb-upload">upload photo</button>
+        <input type="file" accept="image/*" class="link-pop__thumb-file" hidden />
+        <input type="text" class="link-pop__thumb-text" placeholder="or type a label" maxlength="40" />
+        <button type="button" class="link-pop__thumb-btn link-pop__thumb-reset" data-act="thumb-reset" hidden>use default</button>
+      </div>
+    </div>`;
+}
+
+/** Wires up a popover's thumbControlsHTML() block; returns a getter for the current override. */
+function wireThumbControls(pop, current) {
+  const state = { image: current?.thumbnailImage || null, text: current?.thumbnailText || null };
+  const preview = pop.querySelector(".link-pop__thumb-preview");
+  const uploadBtn = pop.querySelector('[data-act="thumb-upload"]');
+  const fileInput = pop.querySelector(".link-pop__thumb-file");
+  const textInput = pop.querySelector(".link-pop__thumb-text");
+  const resetBtn = pop.querySelector('[data-act="thumb-reset"]');
+  textInput.value = state.text || "";
+
+  const render = () => {
+    if (state.image) {
+      preview.style.backgroundImage = `url(${state.image})`;
+      preview.textContent = "";
+    } else {
+      preview.style.backgroundImage = "";
+      preview.textContent = state.text || "auto";
+    }
+    preview.classList.toggle("link-pop__thumb-preview--empty", !state.image && !state.text);
+    resetBtn.hidden = !state.image && !state.text;
+  };
+  render();
+
+  uploadBtn.addEventListener("click", () => fileInput.click());
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (!file) return;
+    try {
+      state.image = await resizeImageFile(file, THUMB_MAX);
+      state.text = null;
+      textInput.value = "";
+      render();
+    } catch {
+      alert("Couldn't use that image.");
+    }
+  });
+  textInput.addEventListener("input", () => {
+    state.text = textInput.value.trim() || null;
+    if (state.text) state.image = null;
+    render();
+  });
+  resetBtn.addEventListener("click", () => {
+    state.image = null;
+    state.text = null;
+    textInput.value = "";
+    render();
+  });
+
+  return () => ({ thumbnailImage: state.image, thumbnailText: state.text });
+}
+
 // ---------------- "paste a link" popover ----------------
 let openPop = null;
 
-/** @param {(link:object)=>void} onSubmit — called with a resolveLink() result */
-export function openLinkPrompt(anchorEl, onSubmit) {
+/**
+ * @param {(link:object)=>void} onSubmit — called with a resolveLink() result
+ *   (plus any custom thumbnail override)
+ * @param {object|null} current — pass an existing link-shaped object to edit
+ *   it in place instead of adding a new one
+ */
+export function openLinkPrompt(anchorEl, onSubmit, current = null) {
   closeLinkPrompt();
+  const editing = !!current;
+  const currentUrl = editing ? (current.kind === "link" ? current.url : youtubeWatchUrl(current.videoId)) : "";
   const pop = document.createElement("div");
   pop.className = "link-pop";
   pop.innerHTML = `
-    <label class="link-pop__label">paste a link</label>
-    <input type="text" class="link-pop__url" placeholder="https://… or a YouTube link" />
+    <label class="link-pop__label">${editing ? "edit link" : "paste a link"}</label>
+    <input type="text" class="link-pop__url" placeholder="https://… or a YouTube link" value="${currentUrl}" />
     <p class="link-pop__err" hidden>that doesn't look like a link</p>
+    ${thumbControlsHTML()}
     <div class="link-pop__actions">
       <button type="button" class="link-pop__cancel" data-act="cancel">cancel</button>
-      <button type="button" class="link-pop__add" data-act="add">add</button>
+      <button type="button" class="link-pop__add" data-act="add">${editing ? "save" : "add"}</button>
     </div>`;
   document.body.appendChild(pop);
 
@@ -82,20 +185,21 @@ export function openLinkPrompt(anchorEl, onSubmit) {
   const input = pop.querySelector(".link-pop__url");
   const err = pop.querySelector(".link-pop__err");
   const addBtn = pop.querySelector('[data-act="add"]');
+  const getThumbOverride = wireThumbControls(pop, current);
   input.focus();
 
   const submit = async () => {
     err.hidden = true;
     addBtn.disabled = true;
-    addBtn.textContent = "adding…";
+    addBtn.textContent = editing ? "saving…" : "adding…";
     const link = await resolveLink(input.value).catch(() => null);
     if (!link) {
       err.hidden = false;
       addBtn.disabled = false;
-      addBtn.textContent = "add";
+      addBtn.textContent = editing ? "save" : "add";
       return;
     }
-    onSubmit(link);
+    onSubmit({ ...link, ...getThumbOverride() });
     closeLinkPrompt();
   };
   addBtn.addEventListener("click", submit);
@@ -130,7 +234,7 @@ export function closeLinkPrompt() {
 // visible slider used to be a second, easy-to-miss one live only here.
 
 /**
- * @param {{kind,videoId,url,title,thumbnailUrl,faviconUrl,domain,showThumbnail,thumbnailOpacity}|null} current
+ * @param {{kind,videoId,url,title,thumbnailUrl,faviconUrl,domain,showThumbnail,thumbnailOpacity,thumbnailImage,thumbnailText}|null} current
  * @param {(embed:object)=>void} onSubmit — a full embed object, ready to store as item.embed
  * @param {()=>void} onRemove
  */
@@ -145,6 +249,7 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
     <input type="text" class="link-pop__url" placeholder="a YouTube link plays inline; any other link opens on tap" value="${currentUrl}" />
     <p class="link-pop__err" hidden>that doesn't look like a link</p>
     ${hasExisting ? '<p class="link-pop__hint">tip: this item\'s opacity slider now also reveals its preview</p>' : ""}
+    ${thumbControlsHTML()}
     <div class="link-pop__actions" style="justify-content:space-between;">
       ${hasExisting ? '<button type="button" class="link-pop__remove" data-act="remove">remove</button>' : "<span></span>"}
       <span style="display:flex; gap:8px;">
@@ -165,6 +270,7 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
   const input = pop.querySelector(".link-pop__url");
   const err = pop.querySelector(".link-pop__err");
   const addBtn = pop.querySelector('[data-act="add"]');
+  const getThumbOverride = wireThumbControls(pop, current);
   input.focus();
 
   const submit = async () => {
@@ -182,10 +288,11 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
     // link itself; otherwise start hidden, as a freshly-buried link should.
     const showThumbnail = hasExisting ? current.showThumbnail ?? false : false;
     const thumbnailOpacity = hasExisting ? current.thumbnailOpacity ?? 1 : 1;
+    const thumbOverride = getThumbOverride();
     const embed =
       link.kind === "youtube"
-        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail, thumbnailOpacity }
-        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail, thumbnailOpacity };
+        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail, thumbnailOpacity, ...thumbOverride }
+        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail, thumbnailOpacity, ...thumbOverride };
     onSubmit(embed);
     closeLinkPrompt();
   };

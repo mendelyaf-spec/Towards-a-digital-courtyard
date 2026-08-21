@@ -78,6 +78,8 @@ export async function addLinkToPocket(canvasId, link) {
           name: link.title || "YouTube video",
           url: link.url,
           thumbnailUrl: link.thumbnailUrl,
+          thumbnailImage: link.thumbnailImage || null,
+          thumbnailText: link.thumbnailText || null,
           createdAt: Date.now(),
         }
       : {
@@ -86,6 +88,8 @@ export async function addLinkToPocket(canvasId, link) {
           url: link.url,
           domain: link.domain,
           faviconUrl: link.faviconUrl,
+          thumbnailImage: link.thumbnailImage || null,
+          thumbnailText: link.thumbnailText || null,
           createdAt: Date.now(),
         };
   const db = await openDB();
@@ -96,6 +100,32 @@ export async function addLinkToPocket(canvasId, link) {
     tx.onerror = () => reject(tx.error);
   });
   return record.id;
+}
+
+/** Edit an existing youtube/link record in place — same shape a fresh
+ *  addLinkToPocket() would produce, but keeps its id (and so its place in
+ *  the grid) instead of appending a duplicate. */
+export async function updateLinkRecord(id, link) {
+  const rec = await getPocketItem(id);
+  if (!rec) return;
+  Object.assign(rec, {
+    kind: link.kind,
+    videoId: link.kind === "youtube" ? link.videoId : undefined,
+    url: link.url,
+    name: link.title || link.domain || rec.name,
+    domain: link.kind === "link" ? link.domain : undefined,
+    faviconUrl: link.kind === "link" ? link.faviconUrl : undefined,
+    thumbnailUrl: link.kind === "youtube" ? link.thumbnailUrl : undefined,
+    thumbnailImage: link.thumbnailImage || null,
+    thumbnailText: link.thumbnailText || null,
+  });
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(rec);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
 }
 
 /**
@@ -149,10 +179,12 @@ export async function sendItemToPocket(canvasId, item) {
     newRecordId = await addLinkToPocket(canvasId, {
       kind: "youtube", videoId: item.videoId, title: item.title,
       thumbnailUrl: item.thumbnailUrl, url: `https://www.youtube.com/watch?v=${item.videoId}`,
+      thumbnailImage: item.thumbnailImage, thumbnailText: item.thumbnailText,
     });
   } else if (item.type === "link") {
     newRecordId = await addLinkToPocket(canvasId, {
       kind: "link", title: item.name, faviconUrl: item.faviconUrl, domain: item.domain, url: item.url,
+      thumbnailImage: item.thumbnailImage, thumbnailText: item.thumbnailText,
     });
   } else if (item.type === "file") {
     // Placing never deletes the original pocket record, so it's likely still
@@ -283,6 +315,21 @@ export class PocketPanel {
     } else if (act === "place") {
       const record = await getPocketItem(id);
       if (record) this.onPlace(record);
+    } else if (act === "edit") {
+      const record = await getPocketItem(id);
+      if (!record) return;
+      const current =
+        record.kind === "youtube"
+          ? { kind: "youtube", videoId: record.videoId, title: record.name, thumbnailUrl: record.thumbnailUrl, thumbnailImage: record.thumbnailImage, thumbnailText: record.thumbnailText }
+          : { kind: "link", url: record.url, title: record.name, domain: record.domain, faviconUrl: record.faviconUrl, thumbnailImage: record.thumbnailImage, thumbnailText: record.thumbnailText };
+      openLinkPrompt(
+        e.target,
+        async (link) => {
+          await updateLinkRecord(id, link);
+          this.refresh();
+        },
+        current
+      );
     }
   }
 
@@ -369,18 +416,32 @@ export class PocketPanel {
 function cardHTML(meta) {
   const icon = meta.kind === "video" ? "🎬" : meta.kind === "doc" ? "📄" : meta.kind === "youtube" ? "▶" : meta.kind === "link" ? "🔗" : "🖼";
   const isLink = meta.kind === "link";
-  const hasInlineThumb = (meta.kind === "youtube" || isLink) && (meta.thumbnailUrl || meta.faviconUrl);
-  const thumbStyle = isLink
-    ? meta.faviconUrl ? `style="background-image:url(${meta.faviconUrl});background-size:36px 36px;background-repeat:no-repeat;"` : ""
-    : hasInlineThumb ? `style="background-image:url(${meta.thumbnailUrl})"` : "";
+  // A custom thumbnail (photo or short label) overrides the auto-detected
+  // video thumbnail / favicon, same as it does once the item's on the canvas.
+  let thumbStyle = "";
+  let thumbContent = "";
+  let thumbClass = "";
+  if (meta.thumbnailImage) {
+    thumbStyle = `style="background-image:url(${meta.thumbnailImage})"`;
+  } else if (meta.thumbnailText) {
+    thumbClass = " pocket-card__thumb--text";
+    thumbContent = escapeHtml(meta.thumbnailText);
+  } else if (isLink && meta.faviconUrl) {
+    thumbStyle = `style="background-image:url(${meta.faviconUrl});background-size:36px 36px;background-repeat:no-repeat;"`;
+  } else if (meta.kind === "youtube" && meta.thumbnailUrl) {
+    thumbStyle = `style="background-image:url(${meta.thumbnailUrl})"`;
+  } else if (meta.kind !== "photo") {
+    thumbContent = icon;
+  }
   return `
     <div class="pocket-card" data-id="${meta.id}" data-kind="${meta.kind}">
-      <button type="button" class="pocket-card__thumb" data-kind="${meta.kind}" data-act="view" ${thumbStyle}
-        >${meta.kind === "photo" || hasInlineThumb ? "" : icon}</button>
+      <button type="button" class="pocket-card__thumb${thumbClass}" data-kind="${meta.kind}" data-act="view" ${thumbStyle}
+        >${thumbContent}</button>
       <div class="pocket-card__name" title="${escapeHtml(meta.name)}">${escapeHtml(meta.name)}</div>
       ${isLink ? `<div class="pocket-card__domain">${escapeHtml(meta.domain || "")}</div>` : ""}
       <div class="pocket-card__row">
         <button type="button" data-act="place">add to canvas</button>
+        ${meta.kind === "youtube" || isLink ? '<button type="button" class="pocket-card__edit" data-act="edit" aria-label="Edit">✎</button>' : ""}
         <button type="button" class="pocket-card__del" data-act="delete" aria-label="Delete">×</button>
       </div>
     </div>`;
