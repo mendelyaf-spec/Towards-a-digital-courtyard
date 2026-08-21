@@ -537,13 +537,21 @@ export class ItemLayer {
     // that link's preview visibility instead of the item's own fill — one
     // discoverable control instead of a second one hidden in a popover.
     const opInput = this.bar.querySelector("#itemOpacity");
+    const opRow = opInput.parentElement;
     if (item?.embed) {
+      opRow.style.display = "";
       opInput.value = Math.round((item.embed.showThumbnail ? item.embed.thumbnailOpacity ?? 1 : 0) * 100);
-      opInput.parentElement.querySelector("span").textContent = "preview";
+      opRow.querySelector("span").textContent = "preview";
+    } else if (item?.type === "text") {
+      // A text item's "fill" is just a faint wash behind the words — not
+      // something worth a control of its own; font size covers what people
+      // actually mean to adjust here.
+      opRow.style.display = "none";
     } else {
+      opRow.style.display = "";
       const def = DEFAULT_OPACITY[item?.type] ?? 1;
       opInput.value = Math.round((item?.opacity ?? def) * 100);
-      opInput.parentElement.querySelector("span").textContent = "opacity";
+      opRow.querySelector("span").textContent = "opacity";
     }
     const fontRow = this.bar.querySelector(".item-bar__op--font");
     fontRow.style.display = item?.type === "text" ? "" : "none";
@@ -632,7 +640,6 @@ export class ItemLayer {
     this.nodes.delete(item.id);
     this._render(item);
     this._updateBadge(item);
-    this._updateGeoBadge(item);
     if (wasSelected) {
       this.selected = null;
       this.select(item.id);
@@ -896,11 +903,17 @@ export class ItemLayer {
     });
 
     // Delete this item and everything attached beneath it — confirm first,
-    // since there's no undo once it's gone.
+    // since there's no undo once it's gone. Exception: an empty text box
+    // with nothing attached has nothing to lose, so it just goes.
     del.addEventListener("pointerdown", (e) => e.stopPropagation());
     del.addEventListener("click", (e) => {
       e.stopPropagation();
       const noteCount = this._descendants(item.id).length;
+      const isEmptyText = item.type === "text" && !item.text?.trim();
+      if (isEmptyText && !noteCount) {
+        this.remove(item.id);
+        return;
+      }
       const msg = noteCount
         ? `Delete this and its ${noteCount} attached note${noteCount === 1 ? "" : "s"}? This can't be undone.`
         : "Delete this? This can't be undone.";
