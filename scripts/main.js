@@ -13,6 +13,7 @@ import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
 import { renderCourtyard } from "./courtyard.js";
 import { migrate, getCanvas, createCanvas, listCanvases } from "./store.js";
+import { canUndo, setUndoChangeListener } from "./undo.js";
 import { consumeInvite } from "../courtyardcreationlogic.js";
 
 migrate(); // bring any old single-canvas data forward
@@ -180,6 +181,12 @@ linkBtn.addEventListener("click", () => {
 
 document.getElementById("resetView").addEventListener("click", () => viewport.reset());
 document.getElementById("canvasBack").addEventListener("click", () => go(""));
+
+// ---------- undo ----------
+const undoBtn = document.getElementById("undoBtn");
+const refreshUndoBtn = () => { undoBtn.disabled = !canUndo(); };
+undoBtn.addEventListener("click", () => layer.undo());
+setUndoChangeListener(refreshUndoBtn);
 
 if (/Mobi|Android|iPhone|iPad/.test(navigator.userAgent)) {
   photoCamera.setAttribute("capture", "environment");

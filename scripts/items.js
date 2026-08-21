@@ -8,6 +8,7 @@
 import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js";
 import { openGeotagPopover, formatCoords } from "../geotag/geotag.js";
 import { youtubeEmbedUrl } from "../youtube/youtube.js";
+import { pushUndoSnapshot, resetUndo, canUndo, popUndoSnapshot } from "./undo.js";
 
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
@@ -44,10 +45,17 @@ export class ItemLayer {
 
     // A reliable "exit" that works whether or not the video ever entered
     // real native fullscreen — Escape always stops whatever is playing.
+    // Ctrl/Cmd+Z undoes the last edit — but not while actually typing in a
+    // text note, where it should mean the browser's own native text undo.
     document.addEventListener("keydown", (e) => {
       if (e.key === "Escape" && this._activeEmbed) this._activeEmbed.stop();
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z" && !e.target?.isContentEditable) {
+        e.preventDefault();
+        this.undo();
+      }
     });
 
+    resetUndo();
     for (const it of items) this._render(it);
     this._applyVisibility();
   }
@@ -61,6 +69,21 @@ export class ItemLayer {
     this.drawMode = false;
     this._hideBar();
     openCanvas(id);
+    resetUndo(); // undo history doesn't carry across canvases
+    for (const it of items) this._render(it);
+    this._applyVisibility();
+  }
+
+  // ---------- undo ----------
+  undo() {
+    if (!canUndo()) return;
+    this._activeEmbed?.stop();
+    const ok = popUndoSnapshot();
+    if (!ok) return;
+    for (const el of this.nodes.values()) el.remove();
+    this.nodes.clear();
+    this.selected = null;
+    this._hideBar();
     for (const it of items) this._render(it);
     this._applyVisibility();
   }
@@ -114,6 +137,7 @@ export class ItemLayer {
   // its CENTER there instead (used for "drag from the pocket and drop it
   // here") — works with whatever w/h ends up resolved, default or explicit.
   add(type, { src, w, h, text, parentId, near, nearCenter, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl } = {}) {
+    pushUndoSnapshot();
     // Type-specific defaults must be resolved BEFORE the generic 160x160
     // fallback below, or `w || 160` there clobbers them and every text/file/
     // youtube/link item silently reverts to a square 160x160 (a real bug we hit).
@@ -570,6 +594,14 @@ export class ItemLayer {
   }
 
   _wireBar() {
+    // One undo snapshot per drag gesture on a slider (at pointerdown, before
+    // any change), not one per 'input' tick — otherwise dragging a slider
+    // from one end to the other would flood the stack with dozens of steps.
+    const snapshotOnce = () => pushUndoSnapshot();
+    this.bar.querySelector("#inkColor").addEventListener("pointerdown", snapshotOnce);
+    this.bar.querySelector("#itemOpacity").addEventListener("pointerdown", snapshotOnce);
+    this.bar.querySelector("#itemFontSize").addEventListener("pointerdown", snapshotOnce);
+
     this.bar.querySelector("#inkColor").addEventListener("input", (e) =>
       this.setColor(e.target.value)
     );
@@ -594,6 +626,7 @@ export class ItemLayer {
       const item = this._get(this.selected);
       if (!item) return;
       openGeotagPopover(e.currentTarget, item.location || null, (loc) => {
+        pushUndoSnapshot();
         if (loc) item.location = loc;
         else delete item.location;
         this._updateGeoBadge(item);
@@ -609,11 +642,13 @@ export class ItemLayer {
         anchorEl,
         item.embed || null,
         (embed) => {
+          pushUndoSnapshot();
           item.embed = embed;
           save();
           this._reRender(item);
         },
         () => {
+          pushUndoSnapshot();
           delete item.embed;
           save();
           this._reRender(item);
@@ -723,6 +758,7 @@ export class ItemLayer {
   // A duplicate never carries over the original's own attached notes — it
   // starts fresh, even if the original had children.
   duplicate(item) {
+    pushUndoSnapshot();
     const clone = JSON.parse(JSON.stringify(item));
     clone.id = newId();
     clone.x = item.x + 24;
@@ -809,7 +845,10 @@ export class ItemLayer {
       const onMove = (ev) => {
         const dx = (ev.clientX - start.x) / this.vp.scale;
         const dy = (ev.clientY - start.y) / this.vp.scale;
-        if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) > TAP_SLOP) moved = true;
+        if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) > TAP_SLOP) {
+          moved = true;
+          pushUndoSnapshot(); // once per drag gesture, right as it turns into a real move
+        }
         item.x = Math.round(start.ix + dx);
         item.y = Math.round(start.iy + dy);
         this._layout(el, item);
@@ -870,6 +909,7 @@ export class ItemLayer {
     handle.addEventListener("pointerdown", (e) => {
       e.stopPropagation();
       this.select(item.id);
+      pushUndoSnapshot();
       handle.setPointerCapture(e.pointerId);
       const start = { x: e.clientX, y: e.clientY, w: item.w, h: item.h };
       const keepSquare = item.type === "circle";
@@ -914,6 +954,7 @@ export class ItemLayer {
   }
 
   _editText(item, el) {
+    pushUndoSnapshot(); // captures the pre-edit text — one undo step per edit session
     const body = el.querySelector(".text-body");
     body.contentEditable = "true";
     body.focus();
@@ -932,6 +973,7 @@ export class ItemLayer {
   }
 
   _startStroke(e, el, item, svg) {
+    pushUndoSnapshot();
     el.setPointerCapture(e.pointerId);
     const stroke = { color: this.color, points: [] };
     item.strokes = item.strokes || [];
@@ -960,6 +1002,7 @@ export class ItemLayer {
   }
 
   remove(id) {
+    pushUndoSnapshot();
     const removed = [id, ...this._descendants(id).map((d) => d.id)];
     for (const d of this._descendants(id)) {
       this.nodes.get(d.id)?.remove();
