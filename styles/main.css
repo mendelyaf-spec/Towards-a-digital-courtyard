@@ -330,7 +330,18 @@ html, body {
   white-space: nowrap;
   box-shadow: 0 2px 5px rgba(0,0,0,.2);
 }
+/* Clips the photo to the item's box — kept off .item--image itself, same
+   reason as .yt-card in youtube.css: the delete button, resize handle, and
+   note badge poke outside the box by design (negative offsets), and
+   overflow:hidden on the item itself would silently clip them away too. */
+.item--image__clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
 .item--image img {
+  position: absolute;
+  left: 50%; top: 50%;
   width: 100%;
   height: 100%;
   object-fit: contain;

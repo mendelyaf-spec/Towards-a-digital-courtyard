@@ -123,6 +123,15 @@
       <span>Aa</span>
       <input id="itemFontSize" type="range" min="10" max="48" value="16" />
     </label>
+    <label class="item-bar__op item-bar__op--imgzoom" title="Zoom the photo within its box">
+      <span>zoom</span>
+      <input id="itemImgZoom" type="range" min="50" max="300" value="100" />
+    </label>
+    <label class="item-bar__op item-bar__op--imgrotate" title="Rotate the photo within its box">
+      <span>rotate</span>
+      <input id="itemImgRotate" type="range" min="-180" max="180" value="0" />
+    </label>
+    <button class="item-bar__btn item-bar__btn--imgpan" data-act="imgpan" type="button" title="Drag the photo to reposition it within its box">✥ move photo</button>
     <button class="item-bar__btn" data-act="draw" type="button" title="Draw on this">✎ draw</button>
     <button class="item-bar__btn" data-act="note" type="button" title="Attach a note">＋ note</button>
     <button class="item-bar__btn" data-act="duplicate" type="button" title="Duplicate this item">⧉ duplicate</button>

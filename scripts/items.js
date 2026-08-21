@@ -29,6 +29,7 @@ export class ItemLayer {
     this.nodes = new Map(); // id -> element
     this.selected = null;
     this.drawMode = false;
+    this._imgPanMode = false; // when true, dragging a selected image item pans its photo instead of moving the item
     this.color = "#b04b4b";
     this.onSelect = null;     // hook: notified with the newly selected id (or null)
     this.groupBg = null;      // background layer, so grouped backgrounds travel with groups
@@ -71,6 +72,7 @@ export class ItemLayer {
     this.nodes.clear();
     this.selected = null;
     this.drawMode = false;
+    this._imgPanMode = false;
     this._hideBar();
     openCanvas(id);
     resetUndo(); // undo history doesn't carry across canvases
@@ -87,6 +89,7 @@ export class ItemLayer {
     for (const el of this.nodes.values()) el.remove();
     this.nodes.clear();
     this.selected = null;
+    this._imgPanMode = false;
     this._hideBar();
     for (const it of items) this._render(it);
     this._applyVisibility();
@@ -182,6 +185,9 @@ export class ItemLayer {
       w: w || 160,
       h: h || 160,
       ...(src ? { src } : {}),
+      // imgScale/imgRotate/imgOffsetX/imgOffsetY pan/zoom/rotate the photo
+      // *within* its box — independent of the box's own size (w/h).
+      ...(type === "image" ? { imgScale: 1, imgRotate: 0, imgOffsetX: 0, imgOffsetY: 0 } : {}),
       ...(type === "text" ? { text: text ?? "", color: this.color, fontSize: 16 } : {}),
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
@@ -205,10 +211,14 @@ export class ItemLayer {
     this._layout(el, item);
 
     if (item.type === "image") {
+      const clip = document.createElement("div");
+      clip.className = "item--image__clip";
       const img = document.createElement("img");
       img.src = item.src;
       img.alt = "";
-      el.appendChild(img);
+      clip.appendChild(img);
+      el.appendChild(clip);
+      this._styleImageContent(el, item);
     }
     if (item.type === "text") {
       const t = document.createElement("div");
@@ -335,6 +345,19 @@ export class ItemLayer {
     this.nodes.set(item.id, el);
     this._updateBadge(item);
     return el;
+  }
+
+  // Pan/zoom/rotate of a photo *within* its box (item-bar's zoom/rotate
+  // sliders + "move photo" drag) — independent of the box's own size,
+  // same idea as a background region's photo controls.
+  _styleImageContent(el, item) {
+    const img = el.querySelector("img");
+    if (!img) return;
+    const scale = item.imgScale ?? 1;
+    const rot = item.imgRotate ?? 0;
+    const ox = item.imgOffsetX ?? 0;
+    const oy = item.imgOffsetY ?? 0;
+    img.style.transform = `translate(-50%, -50%) translate(${ox}px, ${oy}px) rotate(${rot}deg) scale(${scale})`;
   }
 
   // Fades just the shape's fill / wash — text, ink, image, and controls
@@ -570,6 +593,7 @@ export class ItemLayer {
     if (id === this.selected) return; // re-affirming keeps draw mode intact
     if (this.selected) this.nodes.get(this.selected)?.classList.remove("is-selected");
     this.drawMode = false; // only reset when switching to a different item
+    this._imgPanMode = false;
     this.selected = id;
     if (id) {
       const el = this.nodes.get(id);
@@ -610,6 +634,18 @@ export class ItemLayer {
     const fontRow = this.bar.querySelector(".item-bar__op--font");
     fontRow.style.display = item?.type === "text" ? "" : "none";
     this.bar.querySelector("#itemFontSize").value = item?.fontSize || 16;
+
+    const isImg = item?.type === "image";
+    this.bar.querySelector(".item-bar__op--imgzoom").style.display = isImg ? "" : "none";
+    this.bar.querySelector(".item-bar__op--imgrotate").style.display = isImg ? "" : "none";
+    const panBtn = this.bar.querySelector('[data-act="imgpan"]');
+    panBtn.style.display = isImg ? "" : "none";
+    if (isImg) {
+      this.bar.querySelector("#itemImgZoom").value = Math.round((item.imgScale ?? 1) * 100);
+      this.bar.querySelector("#itemImgRotate").value = item.imgRotate ?? 0;
+      panBtn.classList.toggle("is-on", this._imgPanMode);
+      panBtn.textContent = this._imgPanMode ? "✓ done" : "✥ move photo";
+    }
     // Same button opens the same popover either way, but its label should
     // say "edit" once there's something to edit (and remove) — "attach"
     // reads like a dead end once a link is already there.
@@ -646,6 +682,8 @@ export class ItemLayer {
     this.bar.querySelector("#inkColor").addEventListener("pointerdown", snapshotOnce);
     this.bar.querySelector("#itemOpacity").addEventListener("pointerdown", snapshotOnce);
     this.bar.querySelector("#itemFontSize").addEventListener("pointerdown", snapshotOnce);
+    this.bar.querySelector("#itemImgZoom").addEventListener("pointerdown", snapshotOnce);
+    this.bar.querySelector("#itemImgRotate").addEventListener("pointerdown", snapshotOnce);
 
     this.bar.querySelector("#inkColor").addEventListener("input", (e) =>
       this.setColor(e.target.value)
@@ -656,6 +694,25 @@ export class ItemLayer {
     this.bar.querySelector("#itemFontSize").addEventListener("input", (e) =>
       this.setFontSize(Number(e.target.value))
     );
+    this.bar.querySelector("#itemImgZoom").addEventListener("input", (e) => {
+      const item = this._get(this.selected);
+      if (!item) return;
+      item.imgScale = e.target.value / 100;
+      this._styleImageContent(this.nodes.get(item.id), item);
+      save();
+    });
+    this.bar.querySelector("#itemImgRotate").addEventListener("input", (e) => {
+      const item = this._get(this.selected);
+      if (!item) return;
+      item.imgRotate = Number(e.target.value);
+      this._styleImageContent(this.nodes.get(item.id), item);
+      save();
+    });
+    this.bar.querySelector('[data-act="imgpan"]').addEventListener("click", (e) => {
+      this._imgPanMode = !this._imgPanMode;
+      e.currentTarget.classList.toggle("is-on", this._imgPanMode);
+      e.currentTarget.textContent = this._imgPanMode ? "✓ done" : "✥ move photo";
+    });
     this.bar.querySelector('[data-act="draw"]').addEventListener("click", () => {
       this.drawMode = !this.drawMode;
       this._reflectDrawState();
@@ -908,6 +965,31 @@ export class ItemLayer {
       this.select(item.id);
 
       if (this.drawMode) return this._startStroke(e, el, item, svg);
+
+      if (this._imgPanMode && item.type === "image") {
+        // Reposition the photo within its box instead of moving the box.
+        el.setPointerCapture(e.pointerId);
+        const start = { x: e.clientX, y: e.clientY, ox: item.imgOffsetX || 0, oy: item.imgOffsetY || 0 };
+        let panMoved = false;
+        const onPanMove = (ev) => {
+          if (!panMoved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) > TAP_SLOP) {
+            panMoved = true;
+            pushUndoSnapshot();
+          }
+          item.imgOffsetX = start.ox + (ev.clientX - start.x) / this.vp.scale;
+          item.imgOffsetY = start.oy + (ev.clientY - start.y) / this.vp.scale;
+          this._styleImageContent(el, item);
+        };
+        const onPanUp = (ev) => {
+          el.releasePointerCapture(ev.pointerId);
+          el.removeEventListener("pointermove", onPanMove);
+          el.removeEventListener("pointerup", onPanUp);
+          if (panMoved) save();
+        };
+        el.addEventListener("pointermove", onPanMove);
+        el.addEventListener("pointerup", onPanUp);
+        return;
+      }
 
       el.setPointerCapture(e.pointerId);
       const kids = this._descendants(item.id).map((k) => ({
