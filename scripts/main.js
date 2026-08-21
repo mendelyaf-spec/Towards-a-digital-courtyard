@@ -5,6 +5,7 @@ import { Viewport } from "./viewport.js";
 import { ItemLayer } from "./items.js";
 import { Studio } from "./studio.js";
 import { FramePicker } from "../videoframe/videoframe.js";
+import { InAppBrowser } from "../browser/browser.js";
 import { BackgroundLayer } from "../background/background.js";
 import { PocketPanel, getPocketBlobURL, sendItemToPocket } from "../pocket/pocket.js";
 import { openLinkPrompt, closeLinkPrompt } from "../links/links.js";
@@ -34,6 +35,7 @@ const bg = new BackgroundLayer(worldEl, viewport);
 const layer = new ItemLayer(worldEl, viewport);
 const studio = new Studio();
 const framePicker = new FramePicker();
+const inAppBrowser = new InAppBrowser();
 
 viewport.onChange = (s) => {
   zoomLabel.textContent = Math.round(s * 100) + "%";
@@ -127,6 +129,7 @@ layer.resolveFileUrl = getPocketBlobURL; // 'file' items open by resolving their
 let pocket; // referenced by the hooks below, assigned once constructed
 layer.getPocketDropRect = () => pocket?.getDropRect() ?? null;
 layer.onSendToPocket = (item) => sendItemToPocket(pocket.canvasId, item);
+layer.onOpenLink = (url, title) => inAppBrowser.open(url, title);
 
 pocket = new PocketPanel({
   onPlace: async (record) => {
@@ -161,6 +164,7 @@ pocket = new PocketPanel({
     }
   },
 });
+pocket.onOpenLink = (url, title) => inAppBrowser.open(url, title);
 
 // ---------- links: embed a video or drop a bookmark directly, no pocket needed ----------
 const linkBtn = document.getElementById("linkBtn");
@@ -188,6 +192,7 @@ function showView(name) {
   bg.select(null);
   studio.close();
   framePicker.close();
+  inAppBrowser.close();
   pocket.close();
   openPhotoMenu(false);
   closeLinkPrompt();

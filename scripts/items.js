@@ -32,12 +32,20 @@ export class ItemLayer {
     this.resolveFileUrl = null; // hook: async(pocketId) -> blob URL, for 'file' items (docs/videos from the pocket)
     this.getPocketDropRect = null; // hook: () -> DOMRect | null — where "drag to pocket" drops
     this.onSendToPocket = null;    // hook: async(item) -> boolean — true if the pocket accepted it
+    this.onOpenLink = null;        // hook: (url, title) -> void — opens the in-app browser, if wired
+    this._activeEmbed = null;      // { item, stop() } for whichever embed is currently playing, if any
 
     this.bar = document.getElementById("itemBar");
     this._wireBar();
 
     viewport.vp.addEventListener("pointerdown", (e) => {
       if (e.target === viewport.vp) this.select(null);
+    });
+
+    // A reliable "exit" that works whether or not the video ever entered
+    // real native fullscreen — Escape always stops whatever is playing.
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this._activeEmbed) this._activeEmbed.stop();
     });
 
     for (const it of items) this._render(it);
@@ -334,35 +342,71 @@ export class ItemLayer {
     return poster;
   }
 
+  // Hitting play grows the item to a big, easy-to-watch size by default (you
+  // can still drag the corner handle to adjust it further — doing so keeps
+  // your size instead of snapping back). Stopping restores the size it was
+  // before you pressed play, unless you resized it yourself in the meantime.
   _setYtPlaying(card, item, playing) {
-    card.innerHTML = "";
+    const el = card.closest(".item");
     if (!playing) {
+      card.innerHTML = "";
       card.append(this._buildYtPoster(item), ytTitleEl(item));
+      if (this._activeEmbed?.item === item) this._activeEmbed = null;
+      if (item._preBigSize) {
+        Object.assign(item, item._preBigSize);
+        delete item._preBigSize;
+        this._layout(el, item);
+        this.positionBar();
+      }
+      save();
       return;
     }
-    const { iframe, close } = this._buildEmbedIframe(item.videoId, () => this._setYtPlaying(card, item, false));
+    if (!item._preBigSize) {
+      item._preBigSize = { x: item.x, y: item.y, w: item.w, h: item.h };
+      const big = this._bigSizeFor();
+      item.x = Math.round(item.x + item.w / 2 - big.w / 2);
+      item.y = Math.round(item.y + item.h / 2 - big.h / 2);
+      item.w = big.w;
+      item.h = big.h;
+      this._layout(el, item);
+      this.positionBar();
+      save();
+    }
+    card.innerHTML = "";
+    const stop = () => this._setYtPlaying(card, item, false);
+    const { iframe, close } = this._buildEmbedIframe(item.videoId, stop);
     iframe.className = "yt-card__iframe";
     close.className = "yt-card__shrink";
-    close.title = "Back to thumbnail";
-    close.textContent = "⤡";
+    close.title = "Stop (Esc also works)";
+    close.textContent = "✕";
     card.append(iframe, close);
+    this._activeEmbed = { item, stop };
+  }
+
+  // A big-but-reasonable target size, in world units, so it reads as the
+  // same comfortable screen size regardless of the current zoom level.
+  _bigSizeFor(aspect = 16 / 9) {
+    const screenW = Math.min(720, window.innerWidth * 0.7);
+    return {
+      w: Math.round(screenW / this.vp.scale),
+      h: Math.round(screenW / aspect / this.vp.scale),
+    };
   }
 
   // Shared by the dedicated 'youtube' item's poster AND any item carrying a
   // "buried" item.embed — both just need an iframe + a way to stop it.
   //
-  // Deliberately NOT allowing fullscreen: the browser's Fullscreen API
-  // replaces the entire screen with just the fullscreened element's own
-  // subtree — nothing outside it (including our close button, which lives
-  // outside the iframe, since it's foreign YouTube content we can't inject
-  // into) can render on top. Once someone taps the player's own fullscreen
-  // button there is no way back except the OS/browser's own exit gesture,
-  // which isn't reliable across every device — so this content never enters
-  // true fullscreen, keeping our own close button always reachable instead.
+  // Fullscreen IS allowed here: the player's own native fullscreen icon
+  // works, and Escape is the standard, browser-guaranteed way back out of
+  // it — the same as it works on any video anywhere on the web. Our own
+  // close button (below) covers the non-native case, and this class also
+  // listens for Escape itself (see the keydown handler in the constructor)
+  // so it works as an exit even without ever touching real fullscreen.
   _buildEmbedIframe(videoId, onClose) {
     const iframe = document.createElement("iframe");
     iframe.src = youtubeEmbedUrl(videoId, { autoplay: true });
-    iframe.allow = "autoplay; encrypted-media; picture-in-picture";
+    iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+    iframe.allowFullscreen = true;
     iframe.setAttribute("frameborder", "0");
     const close = document.createElement("button");
     close.type = "button";
@@ -378,23 +422,36 @@ export class ItemLayer {
   // "Bury" a link into any item (e.g. a photo): it stays looking exactly
   // like its normal content until tapped. A YouTube link plays right over
   // it, in place — since it's the SAME item, moving it moves the video too.
-  // Any other link just opens in a new tab (most sites can't be framed).
+  // Any other link opens in the in-app browser (if wired) so the canvas
+  // isn't left behind — some sites still won't allow being framed at all,
+  // but that in-app view always offers "open in new tab" as a fallback.
   _activateEmbed(overlay, item) {
     if (!item.embed) return;
     if (!isYoutubeEmbed(item.embed)) {
-      window.open(item.embed.url, "_blank", "noopener");
+      this._openLink(item.embed.url, item.embed.title);
       return;
     }
     if (!overlay || overlay.classList.contains("is-active")) return;
-    const { iframe, close } = this._buildEmbedIframe(item.embed.videoId, () => {
+    const stop = () => {
       overlay.classList.remove("is-active");
       overlay.innerHTML = "";
-    });
+      if (this._activeEmbed?.item === item) this._activeEmbed = null;
+    };
+    const { iframe, close } = this._buildEmbedIframe(item.embed.videoId, stop);
     iframe.className = "embed-overlay__iframe";
     close.className = "embed-overlay__close";
-    close.title = "Stop video";
+    close.title = "Stop (Esc also works)";
     overlay.append(iframe, close);
     overlay.classList.add("is-active");
+    this._activeEmbed = { item, stop };
+  }
+
+  // Opens a link in the app's own browser panel if one is wired up (keeps
+  // the canvas exactly as you left it underneath); falls back to a plain
+  // new tab otherwise, so this class still works standalone.
+  _openLink(url, title) {
+    if (this.onOpenLink) this.onOpenLink(url, title);
+    else window.open(url, "_blank", "noopener");
   }
 
   _layout(el, item) {
@@ -642,12 +699,12 @@ export class ItemLayer {
       });
     }
 
-    // Link cards (any saved URL) open directly — no blob to resolve, it's just a link.
+    // Link cards (any saved URL) open in the in-app browser if wired.
     if (linkOpen) {
       linkOpen.addEventListener("pointerdown", (e) => e.stopPropagation());
       linkOpen.addEventListener("click", (e) => {
         e.stopPropagation();
-        window.open(item.url, "_blank", "noopener");
+        this._openLink(item.url, item.name);
       });
     }
 
@@ -764,6 +821,10 @@ export class ItemLayer {
         handle.releasePointerCapture(ev.pointerId);
         handle.removeEventListener("pointermove", onMove);
         handle.removeEventListener("pointerup", onUp);
+        // A manual resize while auto-expanded (see _setYtPlaying) locks in
+        // that size — stopping playback then keeps it instead of snapping
+        // back to whatever size it was before you pressed play.
+        delete item._preBigSize;
         save();
       };
       handle.addEventListener("pointermove", onMove);

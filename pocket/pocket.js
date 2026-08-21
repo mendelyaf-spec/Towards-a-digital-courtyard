@@ -202,6 +202,7 @@ export class PocketPanel {
   constructor({ onPlace } = {}) {
     this.onPlace = onPlace || (() => {});
     this.canvasId = null;
+    this.onOpenLink = null; // hook: (url, title) -> void — opens the in-app browser, if wired
     this.objectUrls = new Set(); // revoked on refresh/teardown to avoid leaking memory
 
     this.toggleBtn = document.getElementById("pocketToggle");
@@ -315,15 +316,15 @@ export class PocketPanel {
     const rec = await getPocketItem(id);
     if (!rec) return;
     if (rec.kind === "link") {
-      // Most sites block being framed at all — a bookmark just opens.
-      window.open(rec.url, "_blank", "noopener");
+      // Opens in the in-app browser if wired (falls back to a new tab);
+      // some sites still refuse to be framed, but that view always offers
+      // "open in new tab" as a fallback.
+      if (this.onOpenLink) this.onOpenLink(rec.url, rec.name);
+      else window.open(rec.url, "_blank", "noopener");
       return;
     }
     if (rec.kind === "youtube") {
-      // No fullscreen permission, deliberately: it would hide this modal's own
-      // close button (outside the iframe, so nothing we can fix once native
-      // fullscreen takes over) with no reliable way back on every device.
-      this.previewBody.innerHTML = `<iframe class="pocket-preview__yt" src="${youtubeEmbedUrl(rec.videoId, { autoplay: true })}" allow="autoplay; encrypted-media; picture-in-picture" frameborder="0"></iframe>`;
+      this.previewBody.innerHTML = `<iframe class="pocket-preview__yt" src="${youtubeEmbedUrl(rec.videoId, { autoplay: true })}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen frameborder="0"></iframe>`;
       this.preview.hidden = false;
       return;
     }

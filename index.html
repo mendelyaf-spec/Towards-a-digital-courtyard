@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="youtube/youtube.css" />
   <link rel="stylesheet" href="links/links.css" />
   <link rel="stylesheet" href="videoframe/videoframe.css" />
+  <link rel="stylesheet" href="browser/browser.css" />
 </head>
 <body>
   <!-- HOME: your canvases + courtyards (rendered by home.js) -->
@@ -120,6 +121,16 @@
     <button class="item-bar__btn" data-act="duplicate" type="button" title="Duplicate this item">⧉ duplicate</button>
     <button class="item-bar__btn" data-act="geo" type="button" title="Where this lived">📍 geotag</button>
     <button class="item-bar__btn" data-act="embed" type="button" title="Attach a link to this item — a YouTube link plays inline; any other link opens on tap">🔗 attach link</button>
+  </div>
+
+  <!-- In-app browser: opens a link without leaving the mosaic behind -->
+  <div id="inAppBrowser" class="in-app-browser" hidden>
+    <div class="in-app-browser__bar">
+      <button id="inAppBrowserClose" class="in-app-browser__close" type="button" aria-label="Close and return to the canvas">‹</button>
+      <span id="inAppBrowserTitle" class="in-app-browser__title"></span>
+      <button id="inAppBrowserOpenTab" class="in-app-browser__opentab" type="button">↗ open in new tab</button>
+    </div>
+    <iframe id="inAppBrowserFrame" class="in-app-browser__frame" src="about:blank" title="In-app browser"></iframe>
   </div>
 
   <!-- Choose a frame from an uploaded video, before it goes into the studio -->
