@@ -301,12 +301,19 @@ export class ItemLayer {
         else if (v.text) thumbLayer.textContent = v.text;
         else thumbLayer.style.backgroundImage = `url(${v.url})`;
         thumbLayer.style.opacity = item.embed.thumbnailOpacity ?? 1;
+        this._applyClipMask(thumbLayer, item, v);
         el.appendChild(thumbLayer);
       }
 
-      const embedBadge = document.createElement("div");
+      // A real button, not just a decorative indicator — its own dedicated
+      // tap target for activating the embed, always reachable regardless of
+      // whether the item also has attached notes (see the tap-priority
+      // comment below for why the body tap alone can't always be trusted
+      // to reach this for a non-YouTube item with no poster of its own).
+      const embedBadge = document.createElement("button");
+      embedBadge.type = "button";
       embedBadge.className = "embed-badge";
-      embedBadge.title = item.embed.title || (isYt ? "Has a video" : "Has a link");
+      embedBadge.title = item.embed.title || (isYt ? "Play this video" : "Open this link");
       embedBadge.textContent = isYt ? "▶" : "🔗";
       el.appendChild(embedBadge);
 
@@ -652,6 +659,13 @@ export class ItemLayer {
     const embedBtn = this.bar.querySelector('[data-act="embed"]');
     embedBtn.classList.toggle("is-on", !!item?.embed);
     embedBtn.textContent = item?.embed ? "🔗 edit / remove link" : "🔗 attach link";
+
+    // Only makes sense once there's both a buried link AND an actual photo
+    // outline to clip its preview to.
+    const clipBtn = this.bar.querySelector('[data-act="clipshape"]');
+    const showClip = !!item?.embed && item?.type === "image";
+    clipBtn.style.display = showClip ? "" : "none";
+    if (showClip) clipBtn.classList.toggle("is-on", !!item.embed.clipToShape);
     this.positionBar();
   }
   _hideBar() {
@@ -746,6 +760,15 @@ export class ItemLayer {
         }
       );
     });
+    this.bar.querySelector('[data-act="clipshape"]').addEventListener("click", (e) => {
+      const item = this._get(this.selected);
+      if (!item?.embed) return;
+      pushUndoSnapshot();
+      item.embed.clipToShape = !item.embed.clipToShape;
+      e.currentTarget.classList.toggle("is-on", item.embed.clipToShape);
+      this._applyEmbedThumb(this.nodes.get(item.id), item);
+      save();
+    });
   }
 
   // Rebuild an item's DOM in place after a data change (e.g. its embed) that
@@ -837,6 +860,24 @@ export class ItemLayer {
     else if (v.text) { layer.style.backgroundImage = ""; layer.textContent = v.text; }
     else { layer.style.backgroundImage = `url(${v.url})`; layer.textContent = ""; }
     layer.style.opacity = item.embed.thumbnailOpacity ?? 1;
+    this._applyClipMask(layer, item, v);
+  }
+
+  // Optionally limits a buried embed's preview wash to the leaf/cutout's own
+  // outline (using its own image as an alpha mask) instead of its whole
+  // rectangular box — only meaningful for an actual photo (a text label has
+  // no shape to clip to), and only on an image item (the only type that
+  // HAS an irregular outline to clip to in the first place).
+  _applyClipMask(el, item, v) {
+    const useMask = item.type === "image" && item.src && !!item.embed?.clipToShape && !v.text;
+    const mask = useMask ? `url(${item.src})` : "";
+    el.style.maskImage = mask;
+    el.style.webkitMaskImage = mask;
+    if (useMask) {
+      el.style.maskSize = el.style.webkitMaskSize = "contain";
+      el.style.maskRepeat = el.style.webkitMaskRepeat = "no-repeat";
+      el.style.maskPosition = el.style.webkitMaskPosition = "center";
+    }
   }
 
   attachNote() {
@@ -894,6 +935,19 @@ export class ItemLayer {
       linkOpen.addEventListener("click", (e) => {
         e.stopPropagation();
         this._openLink(item.url, item.name);
+      });
+    }
+
+    // A buried item.embed's own always-reachable activation target — needed
+    // because a plain body tap (see the tap-priority chain below) can't
+    // always be trusted to get here: if this item also has attached notes,
+    // the body tap is busy toggling those instead. This badge works either way.
+    if (embedOverlay) {
+      const embedBadge = el.querySelector(".embed-badge");
+      embedBadge?.addEventListener("pointerdown", (e) => e.stopPropagation());
+      embedBadge?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (!embedOverlay.classList.contains("is-active")) this._activateEmbed(embedOverlay, item);
       });
     }
 
@@ -956,7 +1010,7 @@ export class ItemLayer {
     // item.embed, plays the video — but a drag still moves the item first,
     // since a tap is only decided by whether the pointer actually moved.
     el.addEventListener("pointerdown", (e) => {
-      if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen || e.target === linkEdit || e.target.closest?.(".yt-card__edit")) return;
+      if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen || e.target === linkEdit || e.target.closest?.(".yt-card__edit, .embed-badge")) return;
       if (e.target.isContentEditable) return; // editing text
       if (embedOverlay?.classList.contains("is-active") || e.target.closest?.(".yt-card__iframe, .embed-overlay__iframe, .yt-card__shrink, .embed-overlay__close")) return; // let the live embed / its controls handle their own input
       e.stopPropagation();
@@ -1051,12 +1105,19 @@ export class ItemLayer {
         // item would always fire off to a webpage before you ever got the
         // chance to just select it — no way to tell "go there" from "edit
         // this" apart. Same reasoning toggleExpand already used for notes.
+        //
+        // tappedPoster is checked BEFORE the attached-notes check on purpose:
+        // a tap on the poster is a specific, unambiguous target, so it should
+        // still play even once the item also has a note attached — otherwise
+        // attaching a note to a video silently makes the video untappable
+        // (a real bug this order fixes; a buried item.embed with no poster
+        // of its own gets the same fix via its badge, wired below instead).
         if (moved) {
           save();
-        } else if (wasSelected && this._children(item.id).length) {
-          this.toggleExpand(item);
         } else if (wasSelected && tappedPoster && item.type === "youtube") {
           this._setYtPlaying(el.querySelector(".yt-card"), item, true);
+        } else if (wasSelected && this._children(item.id).length) {
+          this.toggleExpand(item);
         } else if (wasSelected && item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
           this._activateEmbed(embedOverlay, item);
         }

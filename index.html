@@ -132,6 +132,7 @@
       <input id="itemImgRotate" type="range" min="-180" max="180" value="0" />
     </label>
     <button class="item-bar__btn item-bar__btn--imgpan" data-act="imgpan" type="button" title="Drag the photo to reposition it within its box">✥ move photo</button>
+    <button class="item-bar__btn item-bar__btn--clipshape" data-act="clipshape" type="button" title="Limit the buried link's preview to this photo's own outline instead of its whole box">🍃 clip to shape</button>
     <button class="item-bar__btn" data-act="draw" type="button" title="Draw on this">✎ draw</button>
     <button class="item-bar__btn" data-act="note" type="button" title="Attach a note">＋ note</button>
     <button class="item-bar__btn" data-act="duplicate" type="button" title="Duplicate this item">⧉ duplicate</button>
@@ -143,6 +144,10 @@
     <div class="in-app-browser__bar">
       <button id="inAppBrowserClose" class="in-app-browser__close" type="button" aria-label="Close and return to the canvas">‹</button>
       <span id="inAppBrowserTitle" class="in-app-browser__title"></span>
+      <label class="in-app-browser__op" title="Fade this to see your mosaic behind it — below full, clicks pass straight through to the canvas">
+        <span>opacity</span>
+        <input id="inAppBrowserOpacity" type="range" min="30" max="100" value="100" />
+      </label>
       <button id="inAppBrowserOpenTab" class="in-app-browser__opentab" type="button">↗ open in new tab</button>
     </div>
     <iframe id="inAppBrowserFrame" class="in-app-browser__frame" src="about:blank" title="In-app browser"></iframe>

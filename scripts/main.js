@@ -8,7 +8,7 @@ import { FramePicker } from "../videoframe/videoframe.js";
 import { InAppBrowser } from "../browser/browser.js";
 import { BackgroundLayer } from "../background/background.js";
 import { PocketPanel, getPocketBlobURL, sendItemToPocket } from "../pocket/pocket.js";
-import { openLinkPrompt, closeLinkPrompt } from "../links/links.js";
+import { openLinkPrompt, closeLinkPrompt, setPhotoEditor } from "../links/links.js";
 import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
 import { renderCourtyard } from "./courtyard.js";
@@ -37,6 +37,16 @@ const layer = new ItemLayer(worldEl, viewport);
 const studio = new Studio();
 const framePicker = new FramePicker();
 const inAppBrowser = new InAppBrowser();
+
+// A thumbnail photo (for a link's preview) gets edited the same familiar way
+// as any other photo upload — background removal, adjustable tolerance —
+// instead of just being auto-resized with no say in it.
+setPhotoEditor(
+  (file) =>
+    new Promise((resolve) => {
+      studio.open(file, (dataURL) => resolve(dataURL), () => resolve(null));
+    })
+);
 
 viewport.onChange = (s) => {
   zoomLabel.textContent = Math.round(s * 100) + "%";

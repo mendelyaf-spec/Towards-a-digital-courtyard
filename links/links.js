@@ -60,7 +60,16 @@ export async function resolveLink(input) {
 // both blank keeps the auto-detected preview.
 const THUMB_MAX = 240; // px on the long edge — plenty for a card-sized preview, keeps the stored data URL small
 
-function resizeImageFile(file, maxSize) {
+// The main app wires this to the same cut-out studio used for every other
+// photo upload (background removal, adjustable tolerance) — so a thumbnail
+// photo gets edited the same familiar way instead of just being auto-resized
+// with no say in it. (file) => Promise<dataURL|null>, null if canceled.
+let editPhotoHook = null;
+export function setPhotoEditor(fn) {
+  editPhotoHook = fn;
+}
+
+function resizeImageSrc(src, maxSize) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onerror = () => reject(new Error("Couldn't read that image"));
@@ -72,11 +81,17 @@ function resizeImageFile(file, maxSize) {
       canvas.width = w;
       canvas.height = h;
       canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL("image/jpeg", 0.85));
+      resolve(canvas.toDataURL("image/png"));
     };
+    img.src = src;
+  });
+}
+
+function resizeImageFile(file, maxSize) {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error);
-    reader.onload = () => { img.src = reader.result; };
+    reader.onload = () => resolve(resizeImageSrc(reader.result, maxSize));
     reader.readAsDataURL(file);
   });
 }
@@ -94,8 +109,14 @@ function thumbControlsHTML() {
     </div>`;
 }
 
-/** Wires up a popover's thumbControlsHTML() block; returns a getter for the current override. */
-function wireThumbControls(pop, current) {
+/**
+ * Wires up a popover's thumbControlsHTML() block; returns a getter for the
+ * current override. `outsideGuard` (optional) — see openLinkPrompt/
+ * openEmbedPrompt — is held suspended while the shared cut-out studio is
+ * open, since its controls live outside `pop`'s own DOM and would otherwise
+ * be read as "clicked outside the popover, close it."
+ */
+function wireThumbControls(pop, current, outsideGuard) {
   const state = { image: current?.thumbnailImage || null, text: current?.thumbnailText || null };
   const preview = pop.querySelector(".link-pop__thumb-preview");
   const uploadBtn = pop.querySelector('[data-act="thumb-upload"]');
@@ -122,13 +143,21 @@ function wireThumbControls(pop, current) {
     const file = fileInput.files?.[0];
     fileInput.value = "";
     if (!file) return;
+    if (outsideGuard) outsideGuard.suspended = true;
     try {
-      state.image = await resizeImageFile(file, THUMB_MAX);
+      // Route through the same cut-out studio as any other photo upload —
+      // background removal, adjustable tolerance — when it's wired up;
+      // whatever comes back still gets capped down to thumbnail size.
+      const edited = editPhotoHook ? await editPhotoHook(file) : null;
+      if (editPhotoHook && !edited) return; // canceled out of the studio — leave the existing thumbnail alone
+      state.image = edited ? await resizeImageSrc(edited, THUMB_MAX) : await resizeImageFile(file, THUMB_MAX);
       state.text = null;
       textInput.value = "";
       render();
     } catch {
       alert("Couldn't use that image.");
+    } finally {
+      if (outsideGuard) outsideGuard.suspended = false;
     }
   });
   textInput.addEventListener("input", () => {
@@ -185,7 +214,11 @@ export function openLinkPrompt(anchorEl, onSubmit, current = null) {
   const input = pop.querySelector(".link-pop__url");
   const err = pop.querySelector(".link-pop__err");
   const addBtn = pop.querySelector('[data-act="add"]');
-  const getThumbOverride = wireThumbControls(pop, current);
+  // Suspended while the shared cut-out studio is open for the thumbnail
+  // photo — its controls live outside this popover's own DOM and would
+  // otherwise read as "clicked outside, close it" the moment they're touched.
+  const outsideGuard = { suspended: false };
+  const getThumbOverride = wireThumbControls(pop, current, outsideGuard);
   input.focus();
 
   const submit = async () => {
@@ -210,6 +243,7 @@ export function openLinkPrompt(anchorEl, onSubmit, current = null) {
   });
 
   const onOutside = (e) => {
+    if (outsideGuard.suspended) return;
     if (!pop.contains(e.target) && e.target !== anchorEl) closeLinkPrompt();
   };
   setTimeout(() => document.addEventListener("pointerdown", onOutside), 0);
@@ -270,7 +304,8 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
   const input = pop.querySelector(".link-pop__url");
   const err = pop.querySelector(".link-pop__err");
   const addBtn = pop.querySelector('[data-act="add"]');
-  const getThumbOverride = wireThumbControls(pop, current);
+  const outsideGuard = { suspended: false };
+  const getThumbOverride = wireThumbControls(pop, current, outsideGuard);
   input.focus();
 
   const submit = async () => {
@@ -284,15 +319,17 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
       addBtn.textContent = "save";
       return;
     }
-    // Preserve an existing preview reveal/opacity when just changing the
-    // link itself; otherwise start hidden, as a freshly-buried link should.
+    // Preserve an existing preview reveal/opacity/clip-mode when just
+    // changing the link itself; otherwise start hidden, as a freshly-buried
+    // link should.
     const showThumbnail = hasExisting ? current.showThumbnail ?? false : false;
     const thumbnailOpacity = hasExisting ? current.thumbnailOpacity ?? 1 : 1;
+    const clipToShape = hasExisting ? !!current.clipToShape : false;
     const thumbOverride = getThumbOverride();
     const embed =
       link.kind === "youtube"
-        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail, thumbnailOpacity, ...thumbOverride }
-        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail, thumbnailOpacity, ...thumbOverride };
+        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail, thumbnailOpacity, clipToShape, ...thumbOverride }
+        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail, thumbnailOpacity, clipToShape, ...thumbOverride };
     onSubmit(embed);
     closeLinkPrompt();
   };
@@ -308,6 +345,7 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
   });
 
   const onOutside = (e) => {
+    if (outsideGuard.suspended) return;
     if (!pop.contains(e.target) && e.target !== anchorEl) closeLinkPrompt();
   };
   setTimeout(() => document.addEventListener("pointerdown", onOutside), 0);

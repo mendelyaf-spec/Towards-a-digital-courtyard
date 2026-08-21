@@ -14,7 +14,8 @@ export class Studio {
 
     this.source = null;   // downscaled source canvas
     this.result = null;   // current cut-out canvas
-    this.onPlace = null;  // callback(dataURL)
+    this.onPlace = null;  // callback(dataURL, w, h)
+    this.onCancel = null; // callback() — fired if closed WITHOUT committing (cancel, backdrop, or a load error)
 
     this.tolerance.addEventListener("input", () => this._recompute());
     this.cancelBtn.addEventListener("click", () => this.close());
@@ -24,13 +25,18 @@ export class Studio {
     });
   }
 
-  async open(file, onPlace) {
+  async open(file, onPlace, onCancel) {
     this.onPlace = onPlace;
+    this.onCancel = onCancel || null;
     try {
       this.source = await fileToCanvas(file);
     } catch (err) {
       console.error(err);
       alert(err.message || "Couldn't open that photo.");
+      const cb = this.onCancel;
+      this.onPlace = null;
+      this.onCancel = null;
+      cb?.(); // never got as far as showing the modal — still counts as "not committed"
       return;
     }
     this._recompute();
@@ -41,6 +47,10 @@ export class Studio {
     this.el.hidden = true;
     this.source = null;
     this.result = null;
+    const cb = this.onCancel;
+    this.onPlace = null;
+    this.onCancel = null;
+    cb?.();
   }
 
   _recompute() {
@@ -57,7 +67,11 @@ export class Studio {
   _commit() {
     if (!this.result || !this.onPlace) return this.close();
     const dataURL = this.result.toDataURL("image/png");
-    this.onPlace(dataURL, this.result.width, this.result.height);
+    const w = this.result.width, h = this.result.height;
+    const onPlace = this.onPlace;
+    this.onPlace = null;
+    this.onCancel = null; // committed — close() below shouldn't also fire cancel
     this.close();
+    onPlace(dataURL, w, h);
   }
 }

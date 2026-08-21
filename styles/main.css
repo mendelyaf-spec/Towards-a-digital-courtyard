@@ -555,7 +555,11 @@ html, body {
 .studio {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  /* Above the link popovers (z-index 50) that can now open it for a
+     thumbnail photo — equal z-index would fall back to DOM order, and
+     since the popover is appended to <body> fresh each time it opens, it
+     would then win and swallow clicks meant for the studio underneath it. */
+  z-index: 65;
   display: grid;
   place-items: center;
   background: rgba(40, 34, 26, 0.55);
