@@ -120,6 +120,7 @@ export class Studio {
     });
     this.posBackBtn.addEventListener("click", () => {
       if (this.previewing) this._setPreviewing(false);
+      else if (this._skipCutout) this.close(); // no cutout stage to go back to — this IS the first stage
       else this._toCutout();
     });
     this.posNextBtn.addEventListener("click", () => {
@@ -129,12 +130,18 @@ export class Studio {
     this._wireFrameDrag();
   }
 
-  /** @param {{position?: 'background'|'item', placeLabel?: string}} opts */
-  async open(file, onPlace, onCancel, { position = "item", placeLabel } = {}) {
+  /** @param {{position?: 'background'|'item', placeLabel?: string, skipCutout?: boolean}} opts
+   *  skipCutout — for a thumbnail: pulling a subject's SHAPE out of its
+   *  background makes no sense for a small preview photo (there's nothing
+   *  to "cut out" of a screenshot), so this bypasses stage 1 entirely and
+   *  goes straight to stage 2 with the photo exactly as uploaded — only
+   *  cropping/zooming/rotating is offered, never subject extraction. */
+  async open(file, onPlace, onCancel, { position = "item", placeLabel, skipCutout = false } = {}) {
     this.onPlace = onPlace;
     this.onCancel = onCancel || null;
     this.positionMode = position;
     this.placeLabel = placeLabel || (position === "background" ? "paste on canvas" : "place on canvas");
+    this._skipCutout = skipCutout;
     try {
       this.source = await fileToCanvas(file);
     } catch (err) {
@@ -148,9 +155,15 @@ export class Studio {
     }
     this._photoSeq++;
     this._ai = { key: null, alpha: null, pending: null, failedKey: null };
-    this._toCutout();
-    this._setMode("auto"); // every photo starts in auto; trace state never carries between photos
-    this.el.hidden = false;
+    if (skipCutout) {
+      this.result = this.source;
+      this.el.hidden = false; // must be visible before _toPosition reads the frame's on-screen size
+      this._toPosition();
+    } else {
+      this._toCutout();
+      this._setMode("auto"); // every photo starts in auto; trace state never carries between photos
+      this.el.hidden = false;
+    }
   }
 
   close() {
@@ -462,7 +475,7 @@ export class Studio {
   _setPreviewing(on) {
     this.previewing = on;
     this.positionStage.classList.toggle("is-previewing", on);
-    this.posBackBtn.textContent = on ? "‹ back to edit" : "‹ back to cutout";
+    this.posBackBtn.textContent = on ? "‹ back to edit" : this._skipCutout ? "‹ cancel" : "‹ back to cutout";
     this.posNextBtn.textContent = on ? this.placeLabel : "preview →";
     this.positionHint.textContent = on
       ? "This is exactly what you're about to place. Go back to adjust it more, or use it as is."

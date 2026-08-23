@@ -38,16 +38,19 @@ const studio = new Studio();
 const framePicker = new FramePicker();
 const inAppBrowser = new InAppBrowser();
 
-// A thumbnail photo (for a link's preview) gets edited the same familiar way
-// as any other photo upload — background removal, adjustable tolerance, and
-// now choosing its crop/zoom/rotate — instead of just being auto-resized
-// with no say in it. 'item' mode bakes that choice into the photo itself.
+// A thumbnail photo (for a link's preview) gets to choose its crop/zoom/
+// rotate before it's used, same as any other photo — but skips subject
+// extraction entirely (skipCutout): pulling a shape out of its background
+// only makes sense for something going onto the canvas as its own object,
+// not a small preview image where the whole point is showing the photo
+// (or screenshot) as it actually is.
 setPhotoEditor(
   (file) =>
     new Promise((resolve) => {
       studio.open(file, (dataURL) => resolve(dataURL), () => resolve(null), {
         position: "item",
         placeLabel: "use this photo",
+        skipCutout: true,
       });
     })
 );
