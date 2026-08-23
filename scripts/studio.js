@@ -3,13 +3,16 @@
 // whole photo, and "trace around it" lets you draw a loop around the one
 // thing you want — everything outside the loop is cut away and the model
 // picks the subject INSIDE it (that's how a bug comes off the leaf it sits
-// on). Both are powered by the neural segmenter in magiccut/ — the same
-// U²-Net family model behind the background-removal tools people actually
-// use — with the classical color-flood extractor (scripts/extract.js) as
-// an instant preview while the model warms up, and as the silent fallback
-// when it can't load at all (first visit offline, no-WASM browser). The
-// slider re-thresholds the model's cached mask, so dragging it is cheap:
-// inference runs once per photo (or per trace), not per tick.
+// on). Both are powered entirely by the neural segmenter in magiccut/ — the
+// same U²-Net family model behind the background-removal tools people
+// actually use. The slider re-thresholds the model's cached mask, so
+// dragging it is cheap: inference runs once per photo (or per trace), not
+// per tick. While that one inference is in flight — or if the model can't
+// load at all (first visit offline, no-WASM browser) — the preview shows
+// the honest un-refined state instead of a worse guess: the untouched
+// photo in auto mode, or a plain "everything inside the loop" crop in
+// trace mode (extract.js's cropToPath, no model involved) — never blocking
+// forever, and never showing something that looks wrong.
 //
 // Stage 2 always follows — pan/zoom/rotate to choose exactly what you're
 // about to place, with a preview/back-to-edit loop, BEFORE anything commits.
@@ -25,7 +28,7 @@
 //     opacity still adjustable, no separate zoom/rotate left to fiddle with
 //     afterward. What you picked before placing is what you get.
 
-import { fileToCanvas, removeBackground, extractWithinPath, cutoutFromAlpha } from "./extract.js";
+import { fileToCanvas, cutoutFromAlpha, cropToPath } from "./extract.js";
 import { subjectAlpha } from "../magiccut/magiccut.js";
 
 const FRAME_W = 320, FRAME_H = 240; // 'background' mode's frame size — must match
@@ -194,11 +197,20 @@ export class Studio {
       if (cached) {
         this.result = cutoutFromAlpha(this.source, cached, aiThr);
         this._aiActive = !!this.result;
+        // The model DID produce a mask, but nothing survives at THIS
+        // threshold (possible at the high end, or for a near-featureless
+        // photo where the mask barely varies) — never get stuck on a null
+        // result just because the current slider position is too tight.
+        if (!this.result) this.result = this.source;
+      } else if (this._ai.failedKey === key) {
+        // Model unavailable for this photo — proceed with the whole,
+        // uncut photo rather than leaving the user stuck. They can still
+        // crop it by hand in the next step (pan/zoom) or use "trace
+        // around it", which needs no model at its minimum setting.
+        this.result = this.source;
+      } else {
+        this._ensureAi(key);
       }
-      // No mask yet (still warming up / unavailable) — classical preview
-      // now, and the model result swaps in when the inference lands.
-      if (!this.result) this.result = removeBackground(this.source, tol);
-      if (!cached) this._ensureAi(key);
     } else if (this.tracePath) {
       // At the slider's minimum the promise is literal — keep EVERYTHING
       // circled, no model, no clean-up.
@@ -208,10 +220,14 @@ export class Studio {
         this._aiActive = !!this.result;
       }
       if (!this.result) {
-        this.result = extractWithinPath(this.source, this.tracePath, literalKeepAll ? 0 : tol);
+        // Honest interim/no-model state: exactly what's inside the loop,
+        // no refinement — never a worse or wrong-looking guess.
+        this.result = cropToPath(this.source, this.tracePath);
         if (!this.result) this.tracePath = null; // the loop enclosed nothing (e.g. a straight swipe) — back to drawing
       }
-      if (!literalKeepAll && !cached && this.tracePath) this._ensureAi(this._aiKey());
+      if (!literalKeepAll && !cached && this.tracePath && this._ai.failedKey !== this._aiKey()) {
+        this._ensureAi(this._aiKey());
+      }
     } else {
       this.result = null; // trace mode, nothing drawn yet — showing the raw photo to trace on
     }
@@ -261,7 +277,7 @@ export class Studio {
           }
         }
       } catch (err) {
-        console.warn("Smart cutout failed — keeping the classical result.", err);
+        console.warn("Smart cutout unavailable for this photo.", err);
       }
       if (this._ai.pending === key) this._ai.pending = null;
       if (this.source !== source || this._aiKey() !== key) return; // stale — a newer state owns the preview now
@@ -283,26 +299,41 @@ export class Studio {
     this.previewBox.classList.toggle("is-tracing", tracing);
     this.retraceBtn.hidden = !(this.mode === "trace" && this.tracePath);
     this.nextBtn.disabled = !this.result;
+
     const key = this._aiKey();
-    const aiWarming = !!(key && this._ai.pending === key);
-    this.toleranceLabel.textContent = this._aiActive
-      ? "edge trim"
-      : this.mode === "auto"
-        ? "background sensitivity"
-        : "clean-up strength";
+    const aiRan = !!(key && this._ai.key === key && this._ai.alpha); // the model produced A mask for this state
+    const aiState = this._aiActive ? "active" : aiRan ? "empty" : key && this._ai.failedKey === key ? "unavailable" : "pending";
+    // The slider means something as soon as the model has produced a mask
+    // to threshold — even if the CURRENT position happens to keep nothing
+    // ("empty"), the point is to drag it back. Disable it in auto mode only
+    // while there's truly no mask yet (pending/unavailable). Trace mode
+    // keeps it enabled always: its minimum works without the model at all
+    // (the plain loop crop).
+    this.tolerance.disabled = this.mode === "auto" && !aiRan;
+    this.toleranceLabel.textContent = aiRan ? "edge trim" : this.mode === "trace" ? "clean-up strength" : "sensitivity";
+
     let hint;
     if (this.mode === "auto") {
-      hint = this._aiActive
-        ? "Found the subject. Drag the slider to trim the edge tighter or keep more of it."
-        : "We trace the subject by clearing away the background. Drag the slider until the edges look right.";
+      hint =
+        aiState === "active"
+          ? "Found the subject. Drag the slider to trim the edge tighter or keep more of it."
+          : aiState === "empty"
+            ? "Nothing left at this setting — drag the slider back down to bring some of it back."
+            : aiState === "unavailable"
+              ? "Smart cutout isn't available right now (you may be offline) — using the whole photo as is. Reopen this photo once you're back online to try again."
+              : "Finding the subject… ✨";
     } else if (tracing) {
       hint = "Draw a loop around the one thing you want — everything outside your line is cut away.";
+    } else if (aiState === "active") {
+      hint = "Keeping just the subject inside your loop. Drag the slider to trim or loosen it — all the way left keeps everything you circled.";
+    } else if (aiState === "empty") {
+      hint = "Nothing left at this setting — drag the slider back down toward the left.";
+    } else if (aiState === "unavailable") {
+      hint = "Smart refinement isn't available right now — keeping everything inside your loop as is.";
     } else {
-      hint = this._aiActive
-        ? "Keeping just the subject inside your loop. Drag the slider to trim or loosen it — all the way left keeps everything you circled."
-        : "Slide to clear the background caught inside your loop — all the way left keeps everything you circled.";
+      hint = "Keeping everything inside your loop for now — refining to just the subject… ✨";
     }
-    this.cutoutHint.textContent = aiWarming ? hint + " ✨ sharpening…" : hint;
+    this.cutoutHint.textContent = hint;
   }
 
   // Draws whatever stage 1 should currently show: the finished cut-out, or

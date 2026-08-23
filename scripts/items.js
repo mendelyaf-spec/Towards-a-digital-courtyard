@@ -257,7 +257,11 @@ export class ItemLayer {
     let linkEdit = null;
     if (item.type === "link") {
       const card = document.createElement("div");
-      card.className = "link-card";
+      // A custom photo (as opposed to a favicon or a short text label) is
+      // substantial enough to BE the item, not sit in a tiny corner icon —
+      // the whole card becomes the photo, with the title/link controls
+      // floating over it instead of in a row beside a thumbnail.
+      card.className = item.thumbnailImage ? "link-card link-card--photo" : "link-card";
       const favicon = document.createElement("div");
       favicon.className = "link-card__favicon";
       this._setLinkFavicon(favicon, item);

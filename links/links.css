@@ -162,6 +162,44 @@
 }
 .link-card__edit:hover { background: rgba(0,0,0,.06); color: var(--ink); }
 
+/* A custom thumbnail PHOTO (not a favicon, not a short text label) is
+   substantial enough to become the whole element — full-bleed image,
+   title/domain as a legible strip over it, controls floating in corners —
+   instead of a small icon sitting beside a bookmark-style row. */
+/* border-radius isn't inherited by CSS, and .item--link's rounded corners
+   live one level up (on the item, not this card) — so the card needs its
+   own matching radius, or its square-cornered content would visibly poke
+   out past the item's rounded corners since nothing else clips it. */
+.link-card--photo { padding: 0; position: relative; overflow: hidden; border-radius: 10px; }
+.link-card--photo .link-card__favicon {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+}
+.link-card--photo .link-card__text {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  padding: 20px 10px 8px;
+  background: linear-gradient(to top, rgba(20, 16, 10, .78), rgba(20, 16, 10, 0));
+}
+.link-card--photo .link-card__title { color: #fff; }
+.link-card--photo .link-card__domain { color: rgba(255, 255, 255, .8); }
+.link-card--photo .link-card__edit,
+.link-card--photo .link-card__open {
+  position: absolute;
+  top: 6px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .3);
+}
+.link-card--photo .link-card__edit {
+  left: 6px;
+  background: rgba(20, 16, 10, .55);
+  color: #fff;
+}
+.link-card--photo .link-card__edit:hover { background: rgba(20, 16, 10, .78); color: #fff; }
+.link-card--photo .link-card__open { right: 6px; }
+
 /* Toolbar glyph */
 .tool__glyph--link {
   display: grid; place-items: center;
