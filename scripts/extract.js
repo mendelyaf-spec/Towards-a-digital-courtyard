@@ -154,6 +154,10 @@ function despeckle(cleared, w, h) {
 /**
  * Build the output: cleared pixels go transparent (on a COPY — the source
  * canvas is never touched), then auto-crop to the surviving subject.
+ * Returns null if nothing survived (empty result) — up to the caller to
+ * decide what that means; auto mode falls back to the untouched source
+ * (see removeBackground), but a caller with its own idea of a safe
+ * fallback (extractWithinPath) should use this instead of assuming.
  */
 function buildOutput(srcCanvas, src, cleared, w, h) {
   const data = src.data;
@@ -170,10 +174,7 @@ function buildOutput(srcCanvas, src, cleared, w, h) {
       if (y > maxY) maxY = y;
     }
   }
-  if (maxX < minX) {
-    // Everything got cleared — return the source untouched as a fallback.
-    return srcCanvas;
-  }
+  if (maxX < minX) return null; // nothing survived
   const full = document.createElement("canvas");
   full.width = w;
   full.height = h;
@@ -216,7 +217,9 @@ export function removeBackground(srcCanvas, tolerance) {
   const cleared = new Uint8Array(w * h);
   floodClear(src.data, w, h, border, pal, tolerance, visited, cleared);
   despeckle(cleared, w, h);
-  return buildOutput(srcCanvas, src, cleared, w, h);
+  // Tolerance ate everything — fall back to the untouched photo, which for
+  // auto mode is the honest degraded answer ("couldn't separate anything").
+  return buildOutput(srcCanvas, src, cleared, w, h) || srcCanvas;
 }
 
 /**
@@ -225,6 +228,13 @@ export function removeBackground(srcCanvas, tolerance) {
  * the trace line at the given tolerance — so the background caught between
  * a loose trace and the subject's true edge clears too. A tolerance of 0
  * skips the clean entirely: a literal "keep everything I circled" crop.
+ *
+ * Returns null for a degenerate trace that encloses nothing (a straight
+ * swipe closes into a zero-area polygon) — the caller should treat that as
+ * "no trace", never as a result. And whatever the tolerance, the output can
+ * never regress past the loop itself: if the clean eats everything inside,
+ * the result falls back to the plain tolerance-0 crop — NOT the full photo,
+ * which would silently un-cut everything outside the line.
  */
 export function extractWithinPath(srcCanvas, path, tolerance) {
   const w = srcCanvas.width;
@@ -247,10 +257,12 @@ export function extractWithinPath(srcCanvas, path, tolerance) {
   const visited = new Uint8Array(N);
   const cleared = new Uint8Array(N);
   const inside = new Uint8Array(N);
+  let insideCount = 0;
   for (let p = 0; p < N; p++) {
-    if (mask[p * 4 + 3] > 127) inside[p] = 1;
+    if (mask[p * 4 + 3] > 127) { inside[p] = 1; insideCount++; }
     else { visited[p] = 1; cleared[p] = 1; } // outside the trace: gone, and the flood never crosses it
   }
+  if (!insideCount) return null; // the loop enclosed nothing at all
 
   // Seed ring: inside pixels that touch the outside (or the image edge) —
   // i.e. the pixels lying directly under the drawn trace line.
@@ -269,6 +281,14 @@ export function extractWithinPath(srcCanvas, path, tolerance) {
     const pal = samplePalette(src.data, ring);
     floodClear(src.data, w, h, ring, pal, tolerance, visited, cleared);
     despeckle(cleared, w, h);
+    const out = buildOutput(srcCanvas, src, cleared, w, h);
+    if (out) return out;
+    // The clean ate everything inside the loop — degrade to the plain crop.
+    // Rebuild state (buildOutput zeroed alphas on `src`'s data) from scratch.
+    const src2 = srcCanvas.getContext("2d").getImageData(0, 0, w, h);
+    const cleared2 = new Uint8Array(N);
+    for (let p = 0; p < N; p++) if (!inside[p]) cleared2[p] = 1;
+    return buildOutput(srcCanvas, src2, cleared2, w, h);
   }
   return buildOutput(srcCanvas, src, cleared, w, h);
 }

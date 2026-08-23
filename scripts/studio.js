@@ -67,7 +67,18 @@ export class Studio {
     this.tracePath = null; // completed trace, [[x,y]…] in source-canvas coords
     this._drawPath = null; // trace being drawn right now
 
-    this.tolerance.addEventListener("input", () => this._recompute());
+    // Coalesce to one recompute per frame: a slider drag fires input events
+    // faster than the (full-image) extraction runs, and queuing one pass per
+    // event just piles up main-thread work and garbage mid-drag.
+    this._recomputeQueued = false;
+    this.tolerance.addEventListener("input", () => {
+      if (this._recomputeQueued) return;
+      this._recomputeQueued = true;
+      requestAnimationFrame(() => {
+        this._recomputeQueued = false;
+        this._recompute();
+      });
+    });
     this.cancelBtn.addEventListener("click", () => this.close());
     this.nextBtn.addEventListener("click", () => this._toPosition());
     this.el.addEventListener("pointerdown", (e) => {
@@ -126,6 +137,8 @@ export class Studio {
     this.el.hidden = true;
     this.source = null;
     this.result = null;
+    this._drawPath = null; // abandon any half-drawn trace with the modal
+    this.tracePath = null;
     const cb = this.onCancel;
     this.onPlace = null;
     this.onCancel = null;
@@ -150,6 +163,7 @@ export class Studio {
       // circled, no clean-up — so pass 0 rather than the min value itself.
       const tol = Number(this.tolerance.value);
       this.result = extractWithinPath(this.source, this.tracePath, tol <= Number(this.tolerance.min) ? 0 : tol);
+      if (!this.result) this.tracePath = null; // the loop enclosed nothing (e.g. a straight swipe) — back to drawing
     } else {
       this.result = null; // trace mode, nothing drawn yet — showing the raw photo to trace on
     }
@@ -209,11 +223,21 @@ export class Studio {
 
   _wireTraceDraw() {
     this.canvas.addEventListener("pointerdown", (e) => {
-      if (this.mode !== "trace" || this.tracePath || !this.source) return;
+      // _drawPath check: a second finger landing mid-trace must not hijack
+      // (or corrupt) the stroke the first finger is still drawing.
+      if (this.mode !== "trace" || this.tracePath || this._drawPath || !this.source) return;
       e.preventDefault();
       this.canvas.setPointerCapture(e.pointerId);
       this._drawPath = [this._canvasPoint(e)];
+      const cleanup = () => {
+        this.canvas.removeEventListener("pointermove", onMove);
+        this.canvas.removeEventListener("pointerup", onUp);
+        this.canvas.removeEventListener("pointercancel", onCancel);
+      };
       const onMove = (ev) => {
+        // Only the finger that started the stroke draws; and _drawPath can
+        // have been nulled under us (mode switched mid-draw) — just stop.
+        if (ev.pointerId !== e.pointerId || !this._drawPath) return;
         const pt = this._canvasPoint(ev);
         const last = this._drawPath[this._drawPath.length - 1];
         if (Math.hypot(pt[0] - last[0], pt[1] - last[1]) < 3) return;
@@ -221,9 +245,8 @@ export class Studio {
         this._renderPreview();
       };
       const onUp = (ev) => {
-        this.canvas.releasePointerCapture(ev.pointerId);
-        this.canvas.removeEventListener("pointermove", onMove);
-        this.canvas.removeEventListener("pointerup", onUp);
+        if (ev.pointerId !== e.pointerId) return;
+        cleanup();
         const path = this._drawPath;
         this._drawPath = null;
         // Only accept a real loop — a stray tap or tiny scribble just resets.
@@ -236,8 +259,18 @@ export class Studio {
         }
         this._recompute();
       };
+      // The browser can cancel a touch outright (incoming call, system
+      // gesture, palm rejection) — without this, the half-drawn loop would
+      // stay painted and the move/up listeners would leak and keep firing.
+      const onCancel = (ev) => {
+        if (ev.pointerId !== e.pointerId) return;
+        cleanup();
+        this._drawPath = null;
+        this._recompute();
+      };
       this.canvas.addEventListener("pointermove", onMove);
       this.canvas.addEventListener("pointerup", onUp);
+      this.canvas.addEventListener("pointercancel", onCancel);
     });
   }
 
