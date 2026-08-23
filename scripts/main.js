@@ -39,12 +39,16 @@ const framePicker = new FramePicker();
 const inAppBrowser = new InAppBrowser();
 
 // A thumbnail photo (for a link's preview) gets edited the same familiar way
-// as any other photo upload — background removal, adjustable tolerance —
-// instead of just being auto-resized with no say in it.
+// as any other photo upload — background removal, adjustable tolerance, and
+// now choosing its crop/zoom/rotate — instead of just being auto-resized
+// with no say in it. 'item' mode bakes that choice into the photo itself.
 setPhotoEditor(
   (file) =>
     new Promise((resolve) => {
-      studio.open(file, (dataURL) => resolve(dataURL), () => resolve(null));
+      studio.open(file, (dataURL) => resolve(dataURL), () => resolve(null), {
+        position: "item",
+        placeLabel: "use this photo",
+      });
     })
 );
 
@@ -120,10 +124,10 @@ function placeCutout(dataURL, w, h, extra = {}) {
     ...extra,
   });
 }
-// Studio's stage-2 "position it" pos ({scale, rotate, offsetX, offsetY}, or
-// null when that stage was skipped) becomes an image item/region's own
-// imgScale/imgRotate/imgOffsetX/imgOffsetY — the exact same fields either
-// one already exposes for editing again afterward.
+// Studio's stage-2 pos ({scale, rotate, offsetX, offsetY}) — only ever set
+// in 'background' mode (see studio.js); a regular item's crop is baked
+// straight into the image instead, so pos is always null there and this is
+// a no-op.
 function posToExtra(pos) {
   return pos ? { imgScale: pos.scale, imgRotate: pos.rotate, imgOffsetX: pos.offsetX, imgOffsetY: pos.offsetY } : {};
 }
@@ -136,14 +140,14 @@ async function handlePhotoFile(file) {
     framePicker.open(file, (stillFrame) => handlePhotoFile(stillFrame));
     return;
   }
-  // Stage 2 (pan/zoom/rotate before it's ever placed) only applies to a
-  // background photo — a regular item's box already fits the cutout's own
-  // aspect ratio, so there's nothing to crop into up front.
+  // 'background' mode (non-destructive, still adjustable afterward) while
+  // the background tool is on; 'item' mode (baked into the image, no
+  // separate zoom/rotate left over on the placed item) otherwise.
   await studio.open(
     file,
     (dataURL, w, h, pos) => placeCutout(dataURL, w, h, posToExtra(pos)),
     null,
-    { withPosition: bg.mode }
+    { position: bg.mode ? "background" : "item" }
   );
 }
 photoCamera.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
@@ -169,7 +173,7 @@ pocket = new PocketPanel({
         (dataURL, w, h, pos) =>
           placeCutout(dataURL, w, h, { ...posToExtra(pos), ...(dropPos ? { nearCenter: dropPos } : {}) }),
         null,
-        { withPosition: bg.mode }
+        { position: bg.mode ? "background" : "item" }
       );
     } else if (record.kind === "youtube") {
       layer.add("youtube", {

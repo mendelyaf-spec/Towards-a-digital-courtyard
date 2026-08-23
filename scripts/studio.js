@@ -6,16 +6,27 @@
 // INSIDE the loop, working inward from your line. That's the tool for a
 // casual phone photo: a leaf on gravel next to a stick, a bug sitting on a
 // leaf — loop the thing you're after and slide until only it remains.
-// For a background photo specifically, stage 2 then lets you pan/zoom/rotate
-// to choose what actually shows BEFORE it ever lands on the canvas — with a
-// preview/back-to-edit loop — instead of only being able to adjust that
-// after placing it. Everything placed still stays editable afterward too.
+//
+// Stage 2 always follows — pan/zoom/rotate to choose exactly what you're
+// about to place, with a preview/back-to-edit loop, BEFORE anything commits.
+// Two flavors, picked via open()'s `position` option:
+//   - 'background': the frame is fixed at background.js's own region size
+//     (320x240) and the chosen pan/zoom/rotate is handed back as data
+//     (imgScale/imgRotate/imgOffsetX/imgOffsetY) for the placed region to
+//     keep applying live — non-destructive, still adjustable afterward via
+//     the background bar, exactly as before.
+//   - 'item': for a regular canvas photo or a link's thumbnail. The frame
+//     matches the cutout's own aspect ratio, and what you chose gets BAKED
+//     into the exported image itself — the placed item is just that image,
+//     opacity still adjustable, no separate zoom/rotate left to fiddle with
+//     afterward. What you picked before placing is what you get.
 
 import { fileToCanvas, removeBackground, extractWithinPath } from "./extract.js";
 
-const FRAME_W = 320, FRAME_H = 240; // must match background.js's default region size —
-// the studio's preview frame and the eventual on-canvas box need to be the
-// same size for a pixel of drag here to mean the same offset there.
+const FRAME_W = 320, FRAME_H = 240; // 'background' mode's frame size — must match
+// background.js's default region size, so a pixel of drag here means the
+// same offset there.
+const BAKE_MAX = 420; // 'item' mode's frame/output long edge, in native px
 
 export class Studio {
   constructor() {
@@ -43,12 +54,15 @@ export class Studio {
 
     this.source = null;   // downscaled source canvas
     this.result = null;   // current cut-out canvas
-    this.onPlace = null;  // callback(dataURL, w, h, pos|null)
+    this.onPlace = null;  // callback(dataURL, w, h, pos|null) — pos only ever set in 'background' mode
     this.onCancel = null; // callback() — fired if closed WITHOUT committing (cancel, backdrop, or a load error)
-    this.withPosition = false; // whether this open() includes stage 2 (backgrounds only)
+    this.positionMode = "item"; // 'background' | 'item' — see file header
+    this.placeLabel = "place on canvas"; // stage 2's final button text once previewing
     this.previewing = false;
     this.pos = { scale: 1, rotate: 0, offsetX: 0, offsetY: 0 };
-    this.frameScale = 1; // the frame's actual on-screen size can be smaller than FRAME_W on a narrow viewport
+    this.frameNativeW = FRAME_W; // the frame's logical size — fixed for 'background', per-photo for 'item'
+    this.frameNativeH = FRAME_H;
+    this.frameScale = 1; // the frame's actual on-screen size can be smaller than frameNativeW on a narrow viewport
     this.mode = "auto";   // 'auto' | 'trace'
     this.tracePath = null; // completed trace, [[x,y]…] in source-canvas coords
     this._drawPath = null; // trace being drawn right now
@@ -86,11 +100,12 @@ export class Studio {
     this._wireFrameDrag();
   }
 
-  /** @param {{withPosition?: boolean}} opts — withPosition adds stage 2 (only meaningful for backgrounds) */
-  async open(file, onPlace, onCancel, { withPosition = false } = {}) {
+  /** @param {{position?: 'background'|'item', placeLabel?: string}} opts */
+  async open(file, onPlace, onCancel, { position = "item", placeLabel } = {}) {
     this.onPlace = onPlace;
     this.onCancel = onCancel || null;
-    this.withPosition = withPosition;
+    this.positionMode = position;
+    this.placeLabel = placeLabel || (position === "background" ? "paste on canvas" : "place on canvas");
     try {
       this.source = await fileToCanvas(file);
     } catch (err) {
@@ -231,19 +246,30 @@ export class Studio {
     this.positionStage.hidden = true;
   }
 
-  // Stage 1 → stage 2 (backgrounds), or straight to commit (everything else
-  // — regular photo/video items, thumbnails — unchanged from before).
+  // Stage 1 → stage 2. Always — every photo/thumbnail gets to choose its
+  // crop before anything commits, not just backgrounds.
   _toPosition() {
     if (!this.onPlace) return this.close();
     if (!this.result) return; // trace mode with nothing drawn yet — the button is disabled, but never close-and-lose here
-    if (!this.withPosition) return this._commit();
     this.pos = { scale: 1, rotate: 0, offsetX: 0, offsetY: 0 };
     this.zoomInput.value = 100;
     this.rotateInput.value = 0;
+    if (this.positionMode === "background") {
+      this.frameNativeW = FRAME_W;
+      this.frameNativeH = FRAME_H;
+    } else {
+      // Match the cutout's own aspect ratio — an organic cutout's shape
+      // matters (a tall leaf needs a tall frame), unlike a background
+      // region which is always the same fixed rectangle.
+      const ratio = this.result.width / this.result.height;
+      this.frameNativeW = ratio >= 1 ? BAKE_MAX : Math.round(BAKE_MAX * ratio);
+      this.frameNativeH = ratio >= 1 ? Math.round(BAKE_MAX / ratio) : BAKE_MAX;
+    }
+    this.frame.style.aspectRatio = `${this.frameNativeW} / ${this.frameNativeH}`;
     this.frameImg.src = this.result.toDataURL("image/png");
     this.cutoutStage.hidden = true;
     this.positionStage.hidden = false;
-    this.frameScale = (this.frame.clientWidth || FRAME_W) / FRAME_W;
+    this.frameScale = (this.frame.clientWidth || this.frameNativeW) / this.frameNativeW;
     this._setPreviewing(false);
     this._renderFrame();
   }
@@ -252,10 +278,10 @@ export class Studio {
     this.previewing = on;
     this.positionStage.classList.toggle("is-previewing", on);
     this.posBackBtn.textContent = on ? "‹ back to edit" : "‹ back to cutout";
-    this.posNextBtn.textContent = on ? "paste on canvas" : "preview →";
+    this.posNextBtn.textContent = on ? this.placeLabel : "preview →";
     this.positionHint.textContent = on
-      ? "This is what lands on your canvas. Paste it, or go back to adjust it more."
-      : "Drag the photo to reposition it, zoom and rotate to choose what shows — this is the section that becomes your background.";
+      ? "This is exactly what you're about to place. Go back to adjust it more, or use it as is."
+      : "Drag the photo to reposition it, zoom and rotate to choose what shows.";
   }
 
   _renderFrame() {
@@ -283,11 +309,41 @@ export class Studio {
     });
   }
 
+  // 'item' mode only: render the chosen pan/zoom/rotate onto a new canvas at
+  // the frame's own native size — replicating the CSS transform on
+  // frameImg exactly (same translate/rotate/scale, same centering), so the
+  // baked pixels match what stage 2 actually showed.
+  _bakePosition() {
+    const { scale, rotate, offsetX, offsetY } = this.pos;
+    const w = this.frameNativeW, h = this.frameNativeH;
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    ctx.translate(w / 2 + offsetX, h / 2 + offsetY);
+    ctx.rotate((rotate * Math.PI) / 180);
+    ctx.scale(scale, scale);
+    // At scale 1 with no pan/rotate, the source exactly fills w×h (the frame
+    // was sized to the source's own aspect ratio) — same as object-fit:cover
+    // does for frameImg when the aspect ratio already matches.
+    ctx.drawImage(this.result, -w / 2, -h / 2, w, h);
+    return canvas;
+  }
+
   _commit() {
     if (!this.result || !this.onPlace) return this.close();
-    const dataURL = this.result.toDataURL("image/png");
-    const w = this.result.width, h = this.result.height;
-    const pos = this.withPosition ? { ...this.pos } : null;
+    let dataURL, w, h, pos = null;
+    if (this.positionMode === "item") {
+      const canvas = this._bakePosition();
+      dataURL = canvas.toDataURL("image/png");
+      w = canvas.width;
+      h = canvas.height;
+    } else {
+      dataURL = this.result.toDataURL("image/png");
+      w = this.result.width;
+      h = this.result.height;
+      pos = { ...this.pos };
+    }
     const onPlace = this.onPlace;
     this.onPlace = null;
     this.onCancel = null; // committed — close() below shouldn't also fire cancel

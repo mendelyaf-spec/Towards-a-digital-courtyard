@@ -126,15 +126,6 @@
       <span>Aa</span>
       <input id="itemFontSize" type="range" min="10" max="48" value="16" />
     </label>
-    <label class="item-bar__op item-bar__op--imgzoom" title="Zoom the photo within its box">
-      <span>zoom</span>
-      <input id="itemImgZoom" type="range" min="50" max="300" value="100" />
-    </label>
-    <label class="item-bar__op item-bar__op--imgrotate" title="Rotate the photo within its box">
-      <span>rotate</span>
-      <input id="itemImgRotate" type="range" min="-180" max="180" value="0" />
-    </label>
-    <button class="item-bar__btn item-bar__btn--imgpan" data-act="imgpan" type="button" title="Drag the photo to reposition it within its box">✥ move photo</button>
     <button class="item-bar__btn item-bar__btn--clipshape" data-act="clipshape" type="button" title="Limit the buried link's preview to this photo's own outline instead of its whole box">🍃 clip to shape</button>
     <button class="item-bar__btn" data-act="draw" type="button" title="Draw on this">✎ draw</button>
     <button class="item-bar__btn" data-act="note" type="button" title="Attach a note">＋ note</button>
@@ -197,7 +188,7 @@
         </label>
         <div class="studio__actions">
           <button id="studioCancel" class="btn btn--ghost" type="button">cancel</button>
-          <button id="studioNext" class="btn btn--solid" type="button">place on canvas</button>
+          <button id="studioNext" class="btn btn--solid" type="button">continue →</button>
         </div>
       </div>
 
@@ -209,7 +200,7 @@
            you want before you commit. -->
       <div id="studioPositionStage" hidden>
         <h2 class="studio__title">position it</h2>
-        <p id="studioPositionHint" class="studio__hint">Drag the photo to reposition it, zoom and rotate to choose what shows — this is the section that becomes your background.</p>
+        <p id="studioPositionHint" class="studio__hint">Drag the photo to reposition it, zoom and rotate to choose what shows.</p>
         <div id="studioFrame" class="studio__frame">
           <img id="studioFrameImg" alt="" draggable="false" />
           <div class="studio__frame-guide"></div>
