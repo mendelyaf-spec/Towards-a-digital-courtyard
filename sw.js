@@ -3,7 +3,7 @@
 // cached copy as a fallback when you don't. Relative URLs keep it working
 // whether the site is hosted at a domain root or a /repo/ subpath.
 
-const CACHE = "courtyard-v17";
+const CACHE = "courtyard-v18";
 const ASSETS = [
   "./",
   "./index.html",
@@ -34,6 +34,12 @@ const ASSETS = [
   "./links/links.js",
   "./videoframe/videoframe.js",
   "./browser/browser.js",
+  // magiccut's own module is tiny and statically imported, so precache it.
+  // The heavy pieces (vendor runtime + model, ~16MB) deliberately are NOT:
+  // they load lazily the first time a photo is opened and the fetch handler
+  // below caches them at that point — offline works from then on, and the
+  // classical extractor covers a first-ever visit that's already offline.
+  "./magiccut/magiccut.js",
   "./manifest.webmanifest",
   "./icons/icon-192.png",
   "./icons/icon-512.png",

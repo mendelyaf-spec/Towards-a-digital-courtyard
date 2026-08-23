@@ -1,11 +1,15 @@
 // studio.js — the cut-out modal.
-// Stage 1 extracts the subject, two ways: "auto" clears whatever touches the
-// photo's edges (good on plain backgrounds), and "trace around it" lets you
-// draw a loop around the one thing you want — everything outside the loop is
-// cut away, and the sensitivity slider then cleans the background caught
-// INSIDE the loop, working inward from your line. That's the tool for a
-// casual phone photo: a leaf on gravel next to a stick, a bug sitting on a
-// leaf — loop the thing you're after and slide until only it remains.
+// Stage 1 extracts the subject, two ways: "auto" finds the subject of the
+// whole photo, and "trace around it" lets you draw a loop around the one
+// thing you want — everything outside the loop is cut away and the model
+// picks the subject INSIDE it (that's how a bug comes off the leaf it sits
+// on). Both are powered by the neural segmenter in magiccut/ — the same
+// U²-Net family model behind the background-removal tools people actually
+// use — with the classical color-flood extractor (scripts/extract.js) as
+// an instant preview while the model warms up, and as the silent fallback
+// when it can't load at all (first visit offline, no-WASM browser). The
+// slider re-thresholds the model's cached mask, so dragging it is cheap:
+// inference runs once per photo (or per trace), not per tick.
 //
 // Stage 2 always follows — pan/zoom/rotate to choose exactly what you're
 // about to place, with a preview/back-to-edit loop, BEFORE anything commits.
@@ -21,7 +25,8 @@
 //     opacity still adjustable, no separate zoom/rotate left to fiddle with
 //     afterward. What you picked before placing is what you get.
 
-import { fileToCanvas, removeBackground, extractWithinPath } from "./extract.js";
+import { fileToCanvas, removeBackground, extractWithinPath, cutoutFromAlpha } from "./extract.js";
+import { subjectAlpha } from "../magiccut/magiccut.js";
 
 const FRAME_W = 320, FRAME_H = 240; // 'background' mode's frame size — must match
 // background.js's default region size, so a pixel of drag here means the
@@ -66,6 +71,16 @@ export class Studio {
     this.mode = "auto";   // 'auto' | 'trace'
     this.tracePath = null; // completed trace, [[x,y]…] in source-canvas coords
     this._drawPath = null; // trace being drawn right now
+
+    // Smart cutout bookkeeping: ONE model inference per (photo, trace),
+    // cached; the slider only re-thresholds the cached mask. Keys change
+    // whenever the photo or the accepted trace changes, so an inference
+    // resolving late for an abandoned state is recognized as stale and
+    // dropped instead of overwriting a newer preview.
+    this._photoSeq = 0;
+    this._traceSeq = 0;
+    this._ai = { key: null, alpha: null, pending: null, failedKey: null };
+    this._aiActive = false; // whether the current preview came from the model
 
     // Coalesce to one recompute per frame: a slider drag fires input events
     // faster than the (full-image) extraction runs, and queuing one pass per
@@ -128,6 +143,8 @@ export class Studio {
       cb?.(); // never got as far as showing the modal — still counts as "not committed"
       return;
     }
+    this._photoSeq++;
+    this._ai = { key: null, alpha: null, pending: null, failedKey: null };
     this._toCutout();
     this._setMode("auto"); // every photo starts in auto; trace state never carries between photos
     this.el.hidden = false;
@@ -139,6 +156,7 @@ export class Studio {
     this.result = null;
     this._drawPath = null; // abandon any half-drawn trace with the modal
     this.tracePath = null;
+    this._ai = { key: null, alpha: null, pending: null, failedKey: null }; // in-flight inference is dropped as stale on arrival
     const cb = this.onCancel;
     this.onPlace = null;
     this.onCancel = null;
@@ -154,16 +172,46 @@ export class Studio {
     this._recompute();
   }
 
+  // Which cached model mask (if any) applies to the current state.
+  _aiKey() {
+    if (this.mode === "auto") return `p${this._photoSeq}:auto`;
+    if (this.tracePath) return `p${this._photoSeq}:trace${this._traceSeq}`;
+    return null;
+  }
+
   _recompute() {
     if (!this.source) return;
+    const tol = Number(this.tolerance.value);
+    // Slider → mask threshold for the model path: min keeps nearly every
+    // pixel the model considers faintly subject-like, max cuts tight.
+    const aiThr = Math.round(10 + (tol / (Number(this.tolerance.max) || 120)) * 200);
+    const key = this._aiKey();
+    const cached = key && this._ai.key === key ? this._ai.alpha : null;
+    this._aiActive = false;
+    this.result = null;
+
     if (this.mode === "auto") {
-      this.result = removeBackground(this.source, Number(this.tolerance.value));
+      if (cached) {
+        this.result = cutoutFromAlpha(this.source, cached, aiThr);
+        this._aiActive = !!this.result;
+      }
+      // No mask yet (still warming up / unavailable) — classical preview
+      // now, and the model result swaps in when the inference lands.
+      if (!this.result) this.result = removeBackground(this.source, tol);
+      if (!cached) this._ensureAi(key);
     } else if (this.tracePath) {
       // At the slider's minimum the promise is literal — keep EVERYTHING
-      // circled, no clean-up — so pass 0 rather than the min value itself.
-      const tol = Number(this.tolerance.value);
-      this.result = extractWithinPath(this.source, this.tracePath, tol <= Number(this.tolerance.min) ? 0 : tol);
-      if (!this.result) this.tracePath = null; // the loop enclosed nothing (e.g. a straight swipe) — back to drawing
+      // circled, no model, no clean-up.
+      const literalKeepAll = tol <= Number(this.tolerance.min);
+      if (!literalKeepAll && cached) {
+        this.result = cutoutFromAlpha(this.source, cached, aiThr, this.tracePath);
+        this._aiActive = !!this.result;
+      }
+      if (!this.result) {
+        this.result = extractWithinPath(this.source, this.tracePath, literalKeepAll ? 0 : tol);
+        if (!this.result) this.tracePath = null; // the loop enclosed nothing (e.g. a straight swipe) — back to drawing
+      }
+      if (!literalKeepAll && !cached && this.tracePath) this._ensureAi(this._aiKey());
     } else {
       this.result = null; // trace mode, nothing drawn yet — showing the raw photo to trace on
     }
@@ -171,18 +219,90 @@ export class Studio {
     this._renderPreview();
   }
 
+  // Run the model once for the current (photo, trace) and cache its mask.
+  // Everything is captured up front so a result landing after the user moved
+  // on (new photo, new trace, modal closed) is detected and dropped.
+  _ensureAi(key) {
+    if (!key || this._ai.pending === key || this._ai.failedKey === key || (this._ai.key === key && this._ai.alpha)) return;
+    this._ai.pending = key;
+    const source = this.source;
+    const path = this.mode === "trace" ? this.tracePath : null;
+    (async () => {
+      let alpha = null;
+      try {
+        if (!path) {
+          alpha = await subjectAlpha(source);
+        } else {
+          // Crop to the loop's neighborhood so the model sees the circled
+          // thing as THE subject of its little image — that's what pulls a
+          // bug off the leaf it sits on — then paste the mask back into a
+          // full-size, zero-elsewhere alpha for the loop intersection.
+          const xs = path.map((p) => p[0]);
+          const ys = path.map((p) => p[1]);
+          const margin = 24;
+          const x0 = Math.max(0, Math.floor(Math.min(...xs)) - margin);
+          const y0 = Math.max(0, Math.floor(Math.min(...ys)) - margin);
+          const x1 = Math.min(source.width, Math.ceil(Math.max(...xs)) + margin);
+          const y1 = Math.min(source.height, Math.ceil(Math.max(...ys)) + margin);
+          const cw = x1 - x0;
+          const ch = y1 - y0;
+          if (cw >= 8 && ch >= 8) {
+            const crop = document.createElement("canvas");
+            crop.width = cw;
+            crop.height = ch;
+            crop.getContext("2d").drawImage(source, x0, y0, cw, ch, 0, 0, cw, ch);
+            const cropAlpha = await subjectAlpha(crop);
+            if (cropAlpha) {
+              alpha = new Uint8ClampedArray(source.width * source.height);
+              for (let y = 0; y < ch; y++) {
+                alpha.set(cropAlpha.subarray(y * cw, y * cw + cw), (y0 + y) * source.width + x0);
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn("Smart cutout failed — keeping the classical result.", err);
+      }
+      if (this._ai.pending === key) this._ai.pending = null;
+      if (this.source !== source || this._aiKey() !== key) return; // stale — a newer state owns the preview now
+      if (!alpha) {
+        // Model unavailable/failed for THIS state: remember so the next
+        // recompute doesn't immediately re-kick it (that would loop), and
+        // refresh once so the "sharpening…" hint clears.
+        this._ai.failedKey = key;
+        this._recompute();
+        return;
+      }
+      this._ai = { key, alpha, pending: null, failedKey: null };
+      this._recompute();
+    })();
+  }
+
   _syncStage1() {
     const tracing = this.mode === "trace" && !this.tracePath;
     this.previewBox.classList.toggle("is-tracing", tracing);
     this.retraceBtn.hidden = !(this.mode === "trace" && this.tracePath);
     this.nextBtn.disabled = !this.result;
-    this.toleranceLabel.textContent = this.mode === "auto" ? "background sensitivity" : "clean-up strength";
-    this.cutoutHint.textContent =
-      this.mode === "auto"
-        ? "We trace the subject by clearing away the background. Drag the slider until the edges look right."
-        : tracing
-          ? "Draw a loop around the one thing you want — everything outside your line is cut away."
-          : "Slide to clear the background caught inside your loop — all the way left keeps everything you circled.";
+    const key = this._aiKey();
+    const aiWarming = !!(key && this._ai.pending === key);
+    this.toleranceLabel.textContent = this._aiActive
+      ? "edge trim"
+      : this.mode === "auto"
+        ? "background sensitivity"
+        : "clean-up strength";
+    let hint;
+    if (this.mode === "auto") {
+      hint = this._aiActive
+        ? "Found the subject. Drag the slider to trim the edge tighter or keep more of it."
+        : "We trace the subject by clearing away the background. Drag the slider until the edges look right.";
+    } else if (tracing) {
+      hint = "Draw a loop around the one thing you want — everything outside your line is cut away.";
+    } else {
+      hint = this._aiActive
+        ? "Keeping just the subject inside your loop. Drag the slider to trim or loosen it — all the way left keeps everything you circled."
+        : "Slide to clear the background caught inside your loop — all the way left keeps everything you circled.";
+    }
+    this.cutoutHint.textContent = aiWarming ? hint + " ✨ sharpening…" : hint;
   }
 
   // Draws whatever stage 1 should currently show: the finished cut-out, or
@@ -255,6 +375,7 @@ export class Studio {
           const ys = path.map((p) => p[1]);
           if (Math.max(...xs) - Math.min(...xs) >= 24 && Math.max(...ys) - Math.min(...ys) >= 24) {
             this.tracePath = path;
+            this._traceSeq++; // a NEW loop — never reuse a previous loop's cached mask
           }
         }
         this._recompute();

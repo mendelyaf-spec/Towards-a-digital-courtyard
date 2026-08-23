@@ -196,7 +196,65 @@ function buildOutput(srcCanvas, src, cleared, w, h) {
   return out;
 }
 
-// ---------- the two extractors ----------
+// ---------- extractors ----------
+
+/**
+ * Model-driven: cut using a soft subject mask (per-pixel 0..255, from
+ * magiccut's neural segmenter). `threshold` (0..255) decides what counts as
+ * subject; surviving pixels keep the mask's soft value as their alpha, so
+ * edges feather naturally instead of looking stamped. An optional traced
+ * `path` confines the cut to inside the loop (the mask is zeroed outside),
+ * which is how "trace around it" picks ONE subject out of several.
+ * Same despeckle + crop as the classical extractors; returns null if
+ * nothing survives the threshold. Pure over the source canvas.
+ */
+export function cutoutFromAlpha(srcCanvas, alpha, threshold, path = null) {
+  const w = srcCanvas.width;
+  const h = srcCanvas.height;
+  const N = w * h;
+  const src = srcCanvas.getContext("2d").getImageData(0, 0, w, h);
+  const data = src.data;
+
+  let inside = null;
+  if (path) {
+    inside = rasterizePathMask(w, h, path);
+    if (!inside) return null; // degenerate loop — same contract as extractWithinPath
+  }
+
+  const cleared = new Uint8Array(N);
+  for (let p = 0; p < N; p++) {
+    const a = inside && !inside[p] ? 0 : alpha[p];
+    if (a < threshold) cleared[p] = 1;
+    else if (a < data[p * 4 + 3]) data[p * 4 + 3] = a; // feathered edge, never MORE opaque than the source
+  }
+  despeckle(cleared, w, h);
+  return buildOutput(srcCanvas, src, cleared, w, h);
+}
+
+/** Rasterize a closed trace into a per-pixel inside mask; null if it encloses nothing. */
+function rasterizePathMask(w, h, path) {
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = w;
+  maskCanvas.height = h;
+  const mctx = maskCanvas.getContext("2d");
+  mctx.fillStyle = "#fff";
+  mctx.beginPath();
+  path.forEach((pt, i) => (i ? mctx.lineTo(pt[0], pt[1]) : mctx.moveTo(pt[0], pt[1])));
+  mctx.closePath();
+  mctx.fill();
+  const mask = mctx.getImageData(0, 0, w, h).data;
+  const inside = new Uint8Array(w * h);
+  let count = 0;
+  for (let p = 0; p < w * h; p++) {
+    if (mask[p * 4 + 3] > 127) {
+      inside[p] = 1;
+      count++;
+    }
+  }
+  return count ? inside : null;
+}
+
+// ---------- the classical extractors (offline / fallback path) ----------
 
 /**
  * Automatic: returns a NEW canvas with the border-connected background
@@ -241,28 +299,15 @@ export function extractWithinPath(srcCanvas, path, tolerance) {
   const h = srcCanvas.height;
   const src = srcCanvas.getContext("2d").getImageData(0, 0, w, h);
 
-  // Rasterize the closed trace into an inside/outside mask.
-  const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = w;
-  maskCanvas.height = h;
-  const mctx = maskCanvas.getContext("2d");
-  mctx.fillStyle = "#fff";
-  mctx.beginPath();
-  path.forEach((pt, i) => (i ? mctx.lineTo(pt[0], pt[1]) : mctx.moveTo(pt[0], pt[1])));
-  mctx.closePath();
-  mctx.fill();
-  const mask = mctx.getImageData(0, 0, w, h).data;
+  const inside = rasterizePathMask(w, h, path);
+  if (!inside) return null; // the loop enclosed nothing at all (e.g. a straight swipe)
 
   const N = w * h;
   const visited = new Uint8Array(N);
   const cleared = new Uint8Array(N);
-  const inside = new Uint8Array(N);
-  let insideCount = 0;
   for (let p = 0; p < N; p++) {
-    if (mask[p * 4 + 3] > 127) { inside[p] = 1; insideCount++; }
-    else { visited[p] = 1; cleared[p] = 1; } // outside the trace: gone, and the flood never crosses it
+    if (!inside[p]) { visited[p] = 1; cleared[p] = 1; } // outside the trace: gone, and the flood never crosses it
   }
-  if (!insideCount) return null; // the loop enclosed nothing at all
 
   // Seed ring: inside pixels that touch the outside (or the image edge) —
   // i.e. the pixels lying directly under the drawn trace line.
