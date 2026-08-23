@@ -585,7 +585,34 @@ html, body {
   min-height: 220px;
   overflow: hidden;
 }
-#studioCanvas { max-width: 100%; max-height: 320px; display: block; }
+#studioCanvas { max-width: 100%; max-height: 320px; display: block; touch-action: none; }
+
+/* auto vs. trace-around-it mode switch */
+.studio__modes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.studio__mode {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.studio__mode:hover { background: rgba(176, 125, 75, .1); }
+.studio__mode.is-on {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-color: var(--accent);
+}
+.studio__retrace { margin-left: auto; }
+/* Waiting for a trace to be drawn — the canvas is a drawing surface. */
+.studio__preview.is-tracing #studioCanvas { cursor: crosshair; }
 .studio__control {
   display: flex;
   flex-direction: column;

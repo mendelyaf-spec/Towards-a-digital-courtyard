@@ -182,12 +182,17 @@
       <!-- Stage 1: trace the subject out of the photo. -->
       <div id="studioCutoutStage">
         <h2 id="studioTitle" class="studio__title">cut out the shape</h2>
-        <p class="studio__hint">We trace the subject by clearing away the background. Drag the slider until the edges look right.</p>
-        <div class="studio__preview">
+        <p id="studioCutoutHint" class="studio__hint">We trace the subject by clearing away the background. Drag the slider until the edges look right.</p>
+        <div class="studio__modes">
+          <button id="studioModeAuto" class="studio__mode is-on" type="button" title="Clear away whatever touches the photo's edges">auto</button>
+          <button id="studioModeTrace" class="studio__mode" type="button" title="Draw a loop around the one thing you want — everything outside your line is cut away">✎ trace around it</button>
+          <button id="studioRetrace" class="studio__mode studio__retrace" type="button" hidden>↺ re-trace</button>
+        </div>
+        <div id="studioPreviewBox" class="studio__preview">
           <canvas id="studioCanvas"></canvas>
         </div>
         <label class="studio__control">
-          <span>background sensitivity</span>
+          <span id="studioToleranceLabel">background sensitivity</span>
           <input id="tolerance" type="range" min="4" max="120" value="40" />
         </label>
         <div class="studio__actions">
