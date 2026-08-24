@@ -8,6 +8,7 @@
 import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js";
 import { youtubeEmbedUrl } from "../youtube/youtube.js";
 import { pushUndoSnapshot, resetUndo, canUndo, popUndoSnapshot } from "./undo.js";
+import { alphaClipPath } from "./silhouette.js";
 
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
@@ -30,6 +31,7 @@ export class ItemLayer {
     this.world = worldEl;
     this.vp = viewport;
     this.nodes = new Map(); // id -> element
+    this._shapeClipCache = new Map(); // item.src -> clip-path string | null, computed once per distinct image
     this.selected = null;
     this.drawMode = false;
     this.color = "#b04b4b";
@@ -213,6 +215,7 @@ export class ItemLayer {
     el.dataset.id = item.id;
     this._layout(el, item);
 
+    let imageClip = null;
     if (item.type === "image") {
       const clip = document.createElement("div");
       clip.className = "item--image__clip";
@@ -222,6 +225,8 @@ export class ItemLayer {
       clip.appendChild(img);
       el.appendChild(clip);
       this._styleImageContent(el, item);
+      this._applyShapeClip(el, item);
+      imageClip = clip;
     }
     if (item.type === "text") {
       const t = document.createElement("div");
@@ -354,7 +359,7 @@ export class ItemLayer {
     el.appendChild(handle);
 
     this._applyFill(el, item);
-    this._wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay });
+    this._wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay, imageClip });
     this.world.appendChild(el);
     this.nodes.set(item.id, el);
     this._updateBadge(item);
@@ -375,6 +380,32 @@ export class ItemLayer {
     const ox = item.imgOffsetX ?? 0;
     const oy = item.imgOffsetY ?? 0;
     img.style.transform = `translate(-50%, -50%) translate(${ox}px, ${oy}px) rotate(${rot}deg) scale(${scale})`;
+  }
+
+  // Traces the cutout's own alpha silhouette into a CSS clip-path (see
+  // silhouette.js) and applies it to .item--image__clip — so the item's
+  // actual clickable/visible area follows the leaf/bug/whatever's real
+  // outline instead of always being its rectangular box. Async (tracing
+  // takes a moment); the item renders as a plain rectangle until this
+  // resolves, same "upgrades in place" pattern as the AI cutout mask.
+  // Cached per distinct image, so re-rendering the same photo (undo,
+  // switching canvases back and forth, duplicating) never re-traces it.
+  async _applyShapeClip(el, item) {
+    const src = item.src;
+    if (!src) return;
+    let clipPath = this._shapeClipCache.get(src);
+    if (clipPath === undefined) {
+      clipPath = await alphaClipPath(src).catch(() => null);
+      this._shapeClipCache.set(src, clipPath);
+    }
+    if (!clipPath) return;
+    // The node may have been removed, re-rendered, or repurposed for a
+    // different item by the time an async trace resolves — only apply to
+    // the exact clip element this call started with, and only if it's
+    // still live in the DOM for the SAME item/photo.
+    const clipEl = el.querySelector(".item--image__clip");
+    if (!clipEl || !this.world.contains(el) || this._get(item.id)?.src !== src) return;
+    clipEl.style.clipPath = clipPath;
   }
 
   // Fades just the shape's fill / wash — text, ink, image, and controls
@@ -920,7 +951,15 @@ export class ItemLayer {
   }
 
   // ---------- per-item interaction ----------
-  _wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay }) {
+  _wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay, imageClip }) {
+    // For an image item, the body select/move/tap gesture is hosted on the
+    // (now shape-clipped) clip element instead of the item itself — el is
+    // pointer-events:none for images (see styles/main.css) precisely so a
+    // click on a transparent corner of the cutout falls through to
+    // whatever's behind, and that only works for the element clip-path is
+    // actually applied to. Every other item type is unaffected: el IS the
+    // body target, exactly as before.
+    const bodyTarget = imageClip || el;
     badge.style.pointerEvents = "none";
 
     // File cards (docs/videos placed from the pocket) open on their own button.
@@ -1015,7 +1054,7 @@ export class ItemLayer {
     // movement) on a YouTube poster, or on any item carrying a buried
     // item.embed, plays the video — but a drag still moves the item first,
     // since a tap is only decided by whether the pointer actually moved.
-    el.addEventListener("pointerdown", (e) => {
+    bodyTarget.addEventListener("pointerdown", (e) => {
       if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen || e.target === linkEdit || e.target.closest?.(".yt-card__edit, .embed-badge")) return;
       if (e.target.isContentEditable) return; // editing text
       if (embedOverlay?.classList.contains("is-active") || e.target.closest?.(".yt-card__iframe, .embed-overlay__iframe, .yt-card__shrink, .embed-overlay__close")) return; // let the live embed / its controls handle their own input
@@ -1024,9 +1063,9 @@ export class ItemLayer {
       const tappedPoster = !!(ytPoster && (e.target === ytPoster || ytPoster.contains(e.target)));
       this.select(item.id);
 
-      if (this.drawMode) return this._startStroke(e, el, item, svg);
+      if (this.drawMode) return this._startStroke(e, bodyTarget, item, svg);
 
-      el.setPointerCapture(e.pointerId);
+      bodyTarget.setPointerCapture(e.pointerId);
       const kids = this._descendants(item.id).map((k) => ({
         k,
         node: this.nodes.get(k.id),
@@ -1069,9 +1108,9 @@ export class ItemLayer {
         }
       };
       const onUp = (ev) => {
-        el.releasePointerCapture(ev.pointerId);
-        el.removeEventListener("pointermove", onMove);
-        el.removeEventListener("pointerup", onUp);
+        bodyTarget.releasePointerCapture(ev.pointerId);
+        bodyTarget.removeEventListener("pointermove", onMove);
+        bodyTarget.removeEventListener("pointerup", onUp);
         this.groupBg?.endGroupDrag();
         el.classList.remove("is-over-pocket");
         if (moved && overPocket && pocketEligible && this.onSendToPocket) {
@@ -1103,8 +1142,8 @@ export class ItemLayer {
           this._activateEmbed(embedOverlay, item);
         }
       };
-      el.addEventListener("pointermove", onMove);
-      el.addEventListener("pointerup", onUp);
+      bodyTarget.addEventListener("pointermove", onMove);
+      bodyTarget.addEventListener("pointerup", onUp);
     });
 
     // Double-click a text note to edit it.

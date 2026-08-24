@@ -242,8 +242,26 @@ html, body {
   border: 2px solid #9bb085;
   border-radius: 50%;
 }
+/* An image item's own hit area follows the cutout's actual silhouette
+   (items.js applies a clip-path to .item--image__clip, computed from the
+   photo's own alpha channel — see scripts/silhouette.js) instead of always
+   being the full rectangular box. clip-path excludes its clipped-away area
+   from hit-testing as well as painting, so a click on a transparent corner
+   correctly falls through to whatever's behind — but only for the element
+   the clip-path is actually applied to. Making that true for the ITEM as a
+   whole (not just the visible photo) means the item itself must stop being
+   a blanket hit target: pointer-events:none here, with everything that
+   still needs to be independently clickable (the clip itself, delete,
+   resize, embed badge) opting back in below. Every other item type is
+   untouched — this is deliberately image-only. */
 .item--image {
   background: transparent;
+  pointer-events: none;
+}
+.item--image .item--image__clip,
+.item--image .handle,
+.item--image .delete {
+  pointer-events: auto;
 }
 .item--text {
   background: #ffffff; /* default — overridden per item by items.js via item.bgColor */

@@ -112,9 +112,11 @@
 }
 
 /* Small, quiet corner indicator — the item otherwise looks exactly like its
-   normal content until played. Bottom-left: geo pin owns top-left, delete
-   owns top-right, resize handle owns bottom-right, note badge owns
-   bottom-center. */
+   normal content until played. Bottom-left: delete owns top-right, resize
+   handle owns bottom-right, note badge owns bottom-center. Also its own
+   always-reachable click target for activating the embed (see items.js) —
+   pointer-events must stay auto, not the "purely an indicator" it used to
+   be before that. */
 .embed-badge {
   position: absolute;
   left: -8px; bottom: -8px;
@@ -127,7 +129,8 @@
   display: grid; place-items: center;
   font-size: 10px;
   box-shadow: 0 2px 5px rgba(0,0,0,.18);
-  pointer-events: none; /* purely an indicator */
+  pointer-events: auto;
+  cursor: pointer;
 }
 .embed-overlay {
   position: absolute;
