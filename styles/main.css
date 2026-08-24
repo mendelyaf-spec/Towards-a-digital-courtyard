@@ -279,8 +279,57 @@ html, body {
   color: #1a1a1a; /* default — overridden per item by items.js via item.color */
   border: 1px dashed #c9bfa9;
   border-radius: 8px;
+}
+/* The clipping layer. Deliberately NOT the item itself: the delete button,
+   resize handle and note badge sit outside the box by design (negative
+   offsets), and overflow:hidden on the item would silently clip them away
+   too — the same lesson as .yt-card and .item--image__clip. */
+.text-card {
+  position: absolute;
+  inset: 0;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: inherit;
+}
+/* The header: the note's opening words until you write your own. One line,
+   always visible — the body scrolls under it rather than pushing it away. */
+.text-head {
+  flex: none;
+  padding: 6px 10px 3px;
+  font-weight: 600;
+  line-height: 1.25;
+  outline: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: text;
+}
+.text-head:empty::before {
+  content: attr(data-placeholder);
+  opacity: .35;
+  font-weight: 500;
+}
+.text-head[contenteditable="true"] {
+  white-space: normal;      /* let a long title be seen while it's edited */
+  text-overflow: clip;
+  background: rgba(176, 125, 75, .08);
+  border-radius: 4px;
+}
+/* The body scrolls instead of spilling — as you type past the bottom the
+   view follows the caret (items.js's scrollCaretIntoView). */
+.text-body {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  padding: 2px 10px 8px;
+  font-size: 16px; /* default — overridden per item by items.js via item.fontSize */
+  line-height: 1.3;
+  outline: none;
+  word-break: break-word;
+  overflow-y: auto;
+  cursor: text;
+  scrollbar-width: thin;
 }
 /* A note wearing a photo's shape: the cutout is the note's whole body
    (items.js clips the note element itself to the photo's silhouette, so
@@ -299,24 +348,17 @@ html, body {
   user-select: none;
   -webkit-user-drag: none;
 }
-.text-body {
-  width: 100%;
-  padding: 8px 10px;
-  font-size: 16px; /* default — overridden per item by items.js via item.fontSize */
-  line-height: 1.3;
-  outline: none;
-  word-break: break-word;
-  cursor: text;
-}
 /* Inside a shape the words have to sit clear of the silhouette's edges,
    and are centred rather than flush — a corner of a leaf is not a place
-   text can live. What doesn't fit is clipped; "read" opens the whole note. */
+   text can live. */
+.item--text.has-shape .text-card {
+  padding: 12% 16%;
+}
+.item--text.has-shape .text-head,
 .item--text.has-shape .text-body {
-  position: relative;
   text-align: center;
-  padding: 14% 18%;
-  max-height: 100%;
-  overflow: hidden;
+  padding-left: 0;
+  padding-right: 0;
 }
 /* On a note that came from an uploaded text file: a way back to the whole
    document (and its margin notes). Only rendered when item.pocketId is set. */

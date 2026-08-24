@@ -22,6 +22,33 @@ const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
 const FILL_RGB = { rect: "233,201,163", circle: "205,217,195", file: "239,231,210", link: "251,248,242" };
 const DEFAULT_OPACITY = { rect: 1, circle: 1, text: 1, image: 1, file: 1, youtube: 1, link: 1 };
 
+/** The first few words of a note — its header until you write your own. */
+function deriveTitle(text) {
+  const firstLine = String(text || "").split("\n").find((l) => l.trim()) || "";
+  const words = firstLine.trim().split(/\s+/).filter(Boolean).slice(0, 6);
+  let t = words.join(" ");
+  if (t.length > 42) t = t.slice(0, 42).trimEnd() + "…";
+  return t;
+}
+
+/**
+ * Keep the caret visible inside a scrolling editable box, so typing past
+ * the bottom follows the words instead of hiding them. A collapsed range
+ * can report an empty rect in some positions; when it does we simply don't
+ * scroll, rather than guessing and jumping somewhere wrong.
+ */
+function scrollCaretIntoView(container) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const r = sel.getRangeAt(0).cloneRange();
+  r.collapse(false);
+  const rect = r.getBoundingClientRect();
+  if (!rect || (!rect.height && !rect.top)) return;
+  const box = container.getBoundingClientRect();
+  if (rect.bottom > box.bottom) container.scrollTop += rect.bottom - box.bottom + 6;
+  else if (rect.top < box.top) container.scrollTop -= box.top - rect.top + 6;
+}
+
 function hexToRgb(hex) {
   const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || "");
   return m ? `${parseInt(m[1], 16)},${parseInt(m[2], 16)},${parseInt(m[3], 16)}` : null;
@@ -160,8 +187,10 @@ export class ItemLayer {
     // fallback below, or `w || 160` there clobbers them and every text/file/
     // youtube/link item silently reverts to a square 160x160 (a real bug we hit).
     if (type === "text") {
-      w = w || 140;
-      h = h || 40;
+      // Tall enough for the header plus a few lines of body; a shorter
+      // default left the body a ~12px slit you couldn't read or type in.
+      w = w || 200;
+      h = h || 110;
     } else if (type === "file") {
       w = w || 180;
       h = h || 90;
@@ -200,7 +229,7 @@ export class ItemLayer {
       // Black on white by default — not tied to whatever the ink/drawing
       // color happens to be set to, which used to leave fresh notes in
       // whatever color you last drew with.
-      ...(type === "text" ? { text: text ?? "", color: "#1a1a1a", bgColor: "#ffffff", fontSize: 16, ...(shapeSrc ? { shapeSrc } : {}) } : {}),
+      ...(type === "text" ? { text: text ?? "", title: deriveTitle(text), color: "#1a1a1a", bgColor: "#ffffff", fontSize: 16, ...(shapeSrc ? { shapeSrc } : {}) } : {}),
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
       ...(type === "link" ? { url, name: name || domain || "link", domain: domain || "", faviconUrl: faviconUrl || "" } : {}),
@@ -250,12 +279,27 @@ export class ItemLayer {
         el.appendChild(shapeImg);
         this._applyNoteShapeClip(el, item);
       }
+      // A note is a header plus a body. The header is the first few words
+      // you type until you write your own; the body scrolls rather than
+      // spilling out of the box. Both live inside .text-card, which does
+      // the clipping — putting overflow on the item itself would also clip
+      // the delete button, resize handle and note badge, which sit outside
+      // the box by design.
+      const card = document.createElement("div");
+      card.className = "text-card";
+
+      const head = document.createElement("div");
+      head.className = "text-head";
+      head.textContent = item.title || "";
+      head.dataset.placeholder = "title…";
+      head.title = "Double-click to rename this note";
+
       const t = document.createElement("div");
       t.className = "text-body";
       t.textContent = item.text || "";
-      t.style.color = item.color || this.color;
-      t.style.fontSize = (item.fontSize || 16) + "px";
-      el.appendChild(t);
+      card.append(head, t);
+      el.appendChild(card);
+      this._applyTextStyle(el, item);
       // Every note gets a way to open and READ it — the words on the canvas
       // may be truncated, or squeezed inside a shape, or both. A note that
       // came from an uploaded file opens the whole document (with its margin
@@ -1120,7 +1164,7 @@ export class ItemLayer {
     if (!item) return;
     if (item.type === "text") {
       item.color = c;
-      this.nodes.get(item.id).querySelector(".text-body").style.color = c;
+      this._applyTextStyle(this.nodes.get(item.id), item);
       save();
     } else if (FILL_RGB[item.type]) {
       // rect/circle/file/link — recolor the shape's own fill/wash, same as
@@ -1142,6 +1186,25 @@ export class ItemLayer {
     item.bgColor = c;
     this._applyFill(this.nodes.get(item.id), item);
     save();
+  }
+
+  /** Colour and size for a note's header and body — one place, so the
+   *  colour swatch and the size slider both reach the whole note. */
+  _applyTextStyle(el, item) {
+    const color = item.color || this.color;
+    const size = item.fontSize || 16;
+    const body = el.querySelector(".text-body");
+    const head = el.querySelector(".text-head");
+    if (body) {
+      body.style.color = color;
+      body.style.fontSize = size + "px";
+    }
+    if (head) {
+      head.style.color = color;
+      // A header reads as a header by being a touch smaller and bold —
+      // scaling with the note's own size rather than a fixed number.
+      head.style.fontSize = Math.max(11, Math.round(size * 0.85)) + "px";
+    }
   }
 
   /** Give a note a photo's shape (a cutout data URL), or clear it with null. */
@@ -1178,8 +1241,8 @@ export class ItemLayer {
     const item = this._get(this.selected);
     if (!item || item.type !== "text") return;
     item.fontSize = size;
-    const body = this.nodes.get(item.id)?.querySelector(".text-body");
-    if (body) body.style.fontSize = size + "px";
+    const el = this.nodes.get(item.id);
+    if (el) this._applyTextStyle(el, item);
     save();
   }
 
@@ -1464,7 +1527,15 @@ export class ItemLayer {
     if (item.type === "text") {
       el.addEventListener("dblclick", (e) => {
         e.stopPropagation();
-        this._editText(item, el);
+        // The header and the body are edited separately — whichever you
+        // actually double-clicked is the one that opens. e.target can't
+        // answer that: the body pointerdown calls setPointerCapture on the
+        // item, and a captured pointer retargets its click/dblclick to the
+        // capturing element, so e.target is ALWAYS the item here. Hit-test
+        // the coordinates instead, which is unaffected by capture.
+        const under = document.elementFromPoint(e.clientX, e.clientY);
+        if (under?.closest(".text-head")) this._editTitle(item, el);
+        else this._editText(item, el);
       });
     }
 
@@ -1525,20 +1596,81 @@ export class ItemLayer {
   _editText(item, el) {
     pushUndoSnapshot(); // captures the pre-edit text — one undo step per edit session
     const body = el.querySelector(".text-body");
+    const head = el.querySelector(".text-head");
     body.contentEditable = "true";
     body.focus();
+    // Caret to the END rather than selecting everything: on a note with
+    // real text in it, select-all means the next keystroke wipes the lot.
     const range = document.createRange();
     range.selectNodeContents(body);
+    range.collapse(false);
     const sel = window.getSelection();
     sel?.removeAllRanges();
     sel?.addRange(range);
+    body.scrollTop = body.scrollHeight;
+
+    const onInput = () => {
+      // Follow the words: keep whatever is being typed inside the box.
+      scrollCaretIntoView(body);
+      // The header tracks the opening words until you write your own.
+      if (!item.titleEdited && head) {
+        item.title = deriveTitle(body.textContent);
+        head.textContent = item.title;
+      }
+    };
+    body.addEventListener("input", onInput);
+
     const finish = () => {
       body.contentEditable = "false";
       item.text = body.textContent.trim();
+      if (!item.titleEdited) item.title = deriveTitle(item.text);
+      if (head) head.textContent = item.title || "";
+      body.removeEventListener("input", onInput);
       body.removeEventListener("blur", finish);
       save();
     };
     body.addEventListener("blur", finish);
+  }
+
+  /** Edit a note's header. Typing here makes it yours — it stops tracking
+   *  the body's opening words from then on. */
+  _editTitle(item, el) {
+    pushUndoSnapshot();
+    const head = el.querySelector(".text-head");
+    if (!head) return;
+    head.contentEditable = "true";
+    head.focus();
+    const range = document.createRange();
+    range.selectNodeContents(head);
+    range.collapse(false);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+
+    // A header is one line — Enter commits it rather than breaking it.
+    const onKey = (e) => {
+      if (e.key === "Enter") { e.preventDefault(); head.blur(); }
+      if (e.key === "Escape") { head.textContent = item.title || ""; head.blur(); }
+    };
+    head.addEventListener("keydown", onKey);
+
+    const finish = () => {
+      head.contentEditable = "false";
+      const typed = head.textContent.replace(/\s+/g, " ").trim();
+      if (typed) {
+        item.title = typed;
+        item.titleEdited = true; // yours now — stop deriving it
+      } else {
+        // Cleared it: fall back to tracking the body's opening words again.
+        delete item.titleEdited;
+        item.title = deriveTitle(item.text);
+        head.textContent = item.title || "";
+      }
+      head.removeEventListener("keydown", onKey);
+      head.removeEventListener("blur", finish);
+      save();
+    };
+    head.addEventListener("blur", finish);
   }
 
   _startStroke(e, el, item, svg) {

@@ -157,7 +157,7 @@ export class DocViewer {
     this.recordId = null;
     this.annotations = [];
     this.pages = [];
-    this.titleEl.textContent = "note";
+    this.titleEl.textContent = item.title || "note";
     this.hintEl.textContent = "Edit freely — changes save as you type.";
     this.pagesEl.innerHTML = "";
     this.marginEl.innerHTML = "";
