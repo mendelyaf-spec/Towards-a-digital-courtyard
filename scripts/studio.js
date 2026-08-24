@@ -1,9 +1,17 @@
 // studio.js — the cut-out modal.
-// Stage 1 extracts the subject, two ways: "auto" finds the subject of the
-// whole photo, and "trace around it" lets you draw a loop around the one
-// thing you want — everything outside the loop is cut away and the model
-// picks the subject INSIDE it (that's how a bug comes off the leaf it sits
-// on). Both are powered entirely by the neural segmenter in magiccut/ — the
+//
+// Stage 1 answers "what do you want out of this photo?", and there are
+// exactly three honest answers, one per mode:
+//   'auto'  — cut out the main subject. The model decides what that is.
+//   'trace' — several candidates in frame; circle the one you mean. The
+//             loop SELECTS a subject, it does not clip to your line: the
+//             chosen thing comes out whole even where your rough circle
+//             cut through it (see extract.js's cutoutFromAlpha). "Which
+//             one", not "cut exactly here".
+//   'whole' — don't cut anything out. Keep the photo as a rectangle; pick
+//             the part you want by panning/zooming in stage 2. That's the
+//             answer whenever you want a SECTION rather than an object.
+// The first two are powered by the neural segmenter in magiccut/ — the
 // same U²-Net family model behind the background-removal tools people
 // actually use. The slider re-thresholds the model's cached mask, so
 // dragging it is cheap: inference runs once per photo (or per trace), not
@@ -47,6 +55,7 @@ export class Studio {
     this.previewBox = document.getElementById("studioPreviewBox");
     this.modeAutoBtn = document.getElementById("studioModeAuto");
     this.modeTraceBtn = document.getElementById("studioModeTrace");
+    this.modeWholeBtn = document.getElementById("studioModeWhole");
     this.retraceBtn = document.getElementById("studioRetrace");
     this.cancelBtn = document.getElementById("studioCancel");
     this.nextBtn = document.getElementById("studioNext");
@@ -71,7 +80,7 @@ export class Studio {
     this.frameNativeW = FRAME_W; // the frame's logical size — fixed for 'background', per-photo for 'item'
     this.frameNativeH = FRAME_H;
     this.frameScale = 1; // the frame's actual on-screen size can be smaller than frameNativeW on a narrow viewport
-    this.mode = "auto";   // 'auto' | 'trace'
+    this.mode = "auto";   // 'auto' | 'trace' | 'whole' — see the file header
     this.tracePath = null; // completed trace, [[x,y]…] in source-canvas coords
     this._drawPath = null; // trace being drawn right now
 
@@ -104,6 +113,7 @@ export class Studio {
     });
     this.modeAutoBtn.addEventListener("click", () => this._setMode("auto"));
     this.modeTraceBtn.addEventListener("click", () => this._setMode("trace"));
+    this.modeWholeBtn.addEventListener("click", () => this._setMode("whole"));
     this.retraceBtn.addEventListener("click", () => {
       this.tracePath = null;
       this._recompute();
@@ -185,13 +195,15 @@ export class Studio {
     this._drawPath = null;
     this.modeAutoBtn.classList.toggle("is-on", mode === "auto");
     this.modeTraceBtn.classList.toggle("is-on", mode === "trace");
+    this.modeWholeBtn.classList.toggle("is-on", mode === "whole");
     this._recompute();
   }
 
-  // Which cached model mask (if any) applies to the current state.
+  // Which cached model mask (if any) applies to the current state. 'whole'
+  // never runs the model at all — there's nothing to segment.
   _aiKey() {
     if (this.mode === "auto") return `p${this._photoSeq}:auto`;
-    if (this.tracePath) return `p${this._photoSeq}:trace${this._traceSeq}`;
+    if (this.mode === "trace" && this.tracePath) return `p${this._photoSeq}:trace${this._traceSeq}`;
     return null;
   }
 
@@ -206,7 +218,11 @@ export class Studio {
     this._aiActive = false;
     this.result = null;
 
-    if (this.mode === "auto") {
+    if (this.mode === "whole") {
+      // Nothing to extract — the photo IS the answer. Stage 2's pan/zoom
+      // is where you pick which part of it you actually want.
+      this.result = this.source;
+    } else if (this.mode === "auto") {
       if (cached) {
         this.result = cutoutFromAlpha(this.source, cached, aiThr);
         this._aiActive = !!this.result;
@@ -218,8 +234,8 @@ export class Studio {
       } else if (this._ai.failedKey === key) {
         // Model unavailable for this photo — proceed with the whole,
         // uncut photo rather than leaving the user stuck. They can still
-        // crop it by hand in the next step (pan/zoom) or use "trace
-        // around it", which needs no model at its minimum setting.
+        // crop it by hand in the next step (pan/zoom), or switch to "keep
+        // whole photo", which never needed the model in the first place.
         this.result = this.source;
       } else {
         this._ensureAi(key);
@@ -316,17 +332,19 @@ export class Studio {
     const key = this._aiKey();
     const aiRan = !!(key && this._ai.key === key && this._ai.alpha); // the model produced A mask for this state
     const aiState = this._aiActive ? "active" : aiRan ? "empty" : key && this._ai.failedKey === key ? "unavailable" : "pending";
-    // The slider means something as soon as the model has produced a mask
-    // to threshold — even if the CURRENT position happens to keep nothing
-    // ("empty"), the point is to drag it back. Disable it in auto mode only
-    // while there's truly no mask yet (pending/unavailable). Trace mode
-    // keeps it enabled always: its minimum works without the model at all
-    // (the plain loop crop).
+    // The slider only governs how tightly the model's mask is cut, so it's
+    // meaningless in 'whole' mode (nothing is being cut) and while there's
+    // no mask yet in 'auto'. Trace mode keeps it enabled throughout: its
+    // minimum works without the model at all (the plain loop crop).
+    const sliderRow = this.tolerance.closest(".studio__control") || this.tolerance.parentElement;
+    if (sliderRow) sliderRow.style.display = this.mode === "whole" ? "none" : "";
     this.tolerance.disabled = this.mode === "auto" && !aiRan;
     this.toleranceLabel.textContent = aiRan ? "edge trim" : this.mode === "trace" ? "clean-up strength" : "sensitivity";
 
     let hint;
-    if (this.mode === "auto") {
+    if (this.mode === "whole") {
+      hint = "Keeping the photo whole — nothing cut out. Choose the part you want in the next step.";
+    } else if (this.mode === "auto") {
       hint =
         aiState === "active"
           ? "Found the subject. Drag the slider to trim the edge tighter or keep more of it."
@@ -336,15 +354,15 @@ export class Studio {
               ? "Smart cutout isn't available right now (you may be offline) — using the whole photo as is. Reopen this photo once you're back online to try again."
               : "Finding the subject… ✨";
     } else if (tracing) {
-      hint = "Draw a loop around the one thing you want — everything outside your line is cut away.";
+      hint = "Circle the thing you want — roughly is fine, the loop just says which one, not where to cut.";
     } else if (aiState === "active") {
-      hint = "Keeping just the subject inside your loop. Drag the slider to trim or loosen it — all the way left keeps everything you circled.";
+      hint = "Got it — that's the thing you circled, cut out whole. Drag the slider to trim its edge.";
     } else if (aiState === "empty") {
       hint = "Nothing left at this setting — drag the slider back down toward the left.";
     } else if (aiState === "unavailable") {
-      hint = "Smart refinement isn't available right now — keeping everything inside your loop as is.";
+      hint = "Smart cutout isn't available right now — keeping everything inside your loop as is.";
     } else {
-      hint = "Keeping everything inside your loop for now — refining to just the subject… ✨";
+      hint = "Keeping everything inside your loop for now — finding the thing you circled… ✨";
     }
     this.cutoutHint.textContent = hint;
   }

@@ -148,6 +148,13 @@ function rasterizePathMask(w, h, path) {
   return count ? inside : null;
 }
 
+/** How much of a subject blob must fall inside the traced loop for that
+ *  loop to count as "pointing at" it. Deliberately low: the loop says WHICH
+ *  thing, so a rough circle that clips the subject's edges still selects the
+ *  whole subject — while a background blob that merely grazes the loop is
+ *  still rejected. */
+const SELECT_OVERLAP = 0.25;
+
 /**
  * Model-driven: cut using a soft subject mask (per-pixel 0..255, from
  * magiccut's neural segmenter). `threshold` (0..255) decides what counts as
@@ -155,10 +162,18 @@ function rasterizePathMask(w, h, path) {
  * edges feather naturally instead of looking stamped — and the alpha only
  * ever gets LOWER than what the source already had, never higher, so
  * re-editing an already-transparent cutout can't paint back opacity that
- * wasn't there. An optional traced `path` confines the cut to inside the
- * loop (the mask is zeroed outside), which is how "trace around it" picks
- * ONE subject out of several. Auto-crops to the surviving subject; returns
- * null if nothing survives. Pure over the source canvas.
+ * wasn't there.
+ *
+ * An optional traced `path` SELECTS which subject, rather than clipping to
+ * the loop: the mask's connected blobs are found, and the ones the loop
+ * actually points at are kept WHOLE — including any part extending past
+ * your line. That's the difference between "which of these things do you
+ * mean" (what a trace is for) and "cut exactly here" (what pan/zoom is
+ * for): circling a leaf roughly gets you the whole leaf, not a leaf with
+ * its edges shaved off wherever your hand wobbled inside it.
+ *
+ * Auto-crops to the surviving subject; returns null if nothing survives.
+ * Pure over the source canvas.
  */
 export function cutoutFromAlpha(srcCanvas, alpha, threshold, path = null) {
   const w = srcCanvas.width;
@@ -167,20 +182,77 @@ export function cutoutFromAlpha(srcCanvas, alpha, threshold, path = null) {
   const src = srcCanvas.getContext("2d").getImageData(0, 0, w, h);
   const data = src.data;
 
-  let inside = null;
+  const cleared = new Uint8Array(N);
+  for (let p = 0; p < N; p++) if (alpha[p] < threshold) cleared[p] = 1;
+
   if (path) {
-    inside = rasterizePathMask(w, h, path);
+    const inside = rasterizePathMask(w, h, path);
     if (!inside) return null; // degenerate loop — same contract as cropToPath
+    if (!keepBlobsSelectedBy(cleared, inside, w, h)) return null; // loop pointed at nothing
   }
 
-  const cleared = new Uint8Array(N);
   for (let p = 0; p < N; p++) {
-    const a = inside && !inside[p] ? 0 : alpha[p];
-    if (a < threshold) cleared[p] = 1;
-    else if (a < data[p * 4 + 3]) data[p * 4 + 3] = a; // feathered edge, never MORE opaque than the source
+    if (cleared[p]) continue;
+    const a = alpha[p];
+    if (a < data[p * 4 + 3]) data[p * 4 + 3] = a; // feathered edge, never MORE opaque than the source
   }
   despeckle(cleared, w, h);
   return buildOutput(srcCanvas, src, cleared, w, h);
+}
+
+/**
+ * Given a binary subject mask (via `cleared`) and a traced loop's interior,
+ * clear every subject blob the loop ISN'T pointing at, keeping the selected
+ * ones entire. A blob counts as selected when a meaningful share of it lies
+ * inside the loop; if none clears that bar, the single most-overlapped blob
+ * wins, so a trace that only nicks the thing still selects it rather than
+ * silently selecting nothing. Mutates `cleared`; returns false if the loop
+ * caught no subject at all.
+ */
+function keepBlobsSelectedBy(cleared, inside, w, h) {
+  const N = w * h;
+  const label = new Int32Array(N);
+  const stack = new Int32Array(N);
+  const sizes = [0];
+  const overlaps = [0];
+  let comp = 0;
+  for (let p = 0; p < N; p++) {
+    if (cleared[p] || label[p]) continue;
+    comp++;
+    let size = 0;
+    let overlap = 0;
+    let sp = 0;
+    stack[sp++] = p;
+    label[p] = comp;
+    while (sp > 0) {
+      const q = stack[--sp];
+      size++;
+      if (inside[q]) overlap++;
+      const x = q % w;
+      const y = (q / w) | 0;
+      if (x > 0 && !cleared[q - 1] && !label[q - 1]) { label[q - 1] = comp; stack[sp++] = q - 1; }
+      if (x < w - 1 && !cleared[q + 1] && !label[q + 1]) { label[q + 1] = comp; stack[sp++] = q + 1; }
+      if (y > 0 && !cleared[q - w] && !label[q - w]) { label[q - w] = comp; stack[sp++] = q - w; }
+      if (y < h - 1 && !cleared[q + w] && !label[q + w]) { label[q + w] = comp; stack[sp++] = q + w; }
+    }
+    sizes[comp] = size;
+    overlaps[comp] = overlap;
+  }
+  if (!comp) return false;
+
+  const keep = new Uint8Array(comp + 1);
+  let any = false;
+  let best = 0;
+  for (let c = 1; c <= comp; c++) {
+    if (overlaps[c] > overlaps[best]) best = c;
+    if (sizes[c] && overlaps[c] / sizes[c] >= SELECT_OVERLAP) { keep[c] = 1; any = true; }
+  }
+  if (!any) {
+    if (!overlaps[best]) return false; // the loop genuinely touched no subject pixel
+    keep[best] = 1;
+  }
+  for (let p = 0; p < N; p++) if (label[p] && !keep[label[p]]) cleared[p] = 1;
+  return true;
 }
 
 /**
