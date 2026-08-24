@@ -263,6 +263,17 @@ html, body {
 .item--image .delete {
   pointer-events: auto;
 }
+/* A note sits ABOVE media. Selecting any item brings it to the front of
+   .world (see select()), so touching an image once would otherwise bury a
+   note lying on top of it — permanently, and invisibly: clicks meant for
+   the note would land on the image instead, and if that image holds a
+   link the second click fires off to the webpage rather than editing the
+   note. A note annotates the thing under it, so it belongs on top; this
+   keeps it reachable no matter what was selected last. A playing video or
+   opened link still covers it (.embed-overlay is z-index 3), which is
+   right — that's the thing you just asked to watch. */
+.item--text { z-index: 2; }
+
 .item--text {
   background: #ffffff; /* default — overridden per item by items.js via item.bgColor */
   color: #1a1a1a; /* default — overridden per item by items.js via item.color */
