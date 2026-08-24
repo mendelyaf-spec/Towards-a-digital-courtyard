@@ -155,3 +155,125 @@
   cursor: pointer;
   font-size: 13px;
 }
+
+/* ---- notes pinned to moments in a video ---- */
+/* A note surfacing as playback reaches its moment. Sits over the video,
+   clear of the stop button (top-right) and the add control (bottom-left). */
+.yt-note-toast {
+  position: absolute;
+  left: 8px; right: 8px; bottom: 44px;
+  z-index: 4;
+  padding: 8px 11px;
+  border-radius: 8px;
+  background: rgba(20, 18, 14, .86);
+  color: #fff;
+  font-size: 12.5px;
+  line-height: 1.4;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity .2s ease, transform .2s ease;
+  pointer-events: none;
+}
+.yt-note-toast.is-on { opacity: 1; transform: none; }
+.yt-note-add {
+  position: absolute;
+  left: 6px; bottom: 6px;
+  z-index: 4;
+  border: none;
+  background: rgba(15, 15, 16, .78);
+  color: #fff;
+  font-size: 11.5px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.yt-note-add:hover { background: rgba(15, 15, 16, .92); }
+.yt-note-add:disabled { opacity: .55; cursor: default; }
+/* Quiet count on the poster, so a video wears its annotations. */
+.yt-note-count {
+  position: absolute;
+  left: 6px; bottom: 6px;
+  z-index: 2;
+  background: rgba(15, 15, 16, .72);
+  color: #fff;
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+/* ---- all the notes for a video, in one place ---- */
+.yt-notes-pop {
+  position: fixed;
+  z-index: 50;
+  width: 300px;
+  max-height: 60vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  box-shadow: var(--shadow);
+}
+.yt-notes-pop__head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 12px; font-weight: 600; color: var(--ink);
+  margin-bottom: 8px;
+}
+.yt-notes-pop__close {
+  border: none; background: transparent; cursor: pointer;
+  font-size: 16px; line-height: 1; color: var(--ink); padding: 0 2px;
+}
+.yt-notes-pop__empty {
+  margin: 0 0 8px; font-size: 11.5px; font-style: italic;
+  color: var(--ink-faint, #9a927a);
+}
+.yt-notes-pop__row {
+  display: flex; align-items: flex-start; gap: 7px;
+  padding: 5px 0;
+  border-top: 1px solid var(--line);
+}
+.yt-notes-pop__time {
+  flex: none;
+  border: none;
+  background: rgba(176, 125, 75, .14);
+  color: var(--accent);
+  font-size: 11px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.yt-notes-pop__time:hover { background: var(--accent); color: var(--accent-ink); }
+.yt-notes-pop__body {
+  flex: 1; min-width: 0;
+  font-size: 12.5px; line-height: 1.4; color: var(--ink);
+  word-break: break-word;
+}
+.yt-notes-pop__del {
+  flex: none;
+  border: none; background: transparent; color: var(--ink-faint, #9a927a);
+  cursor: pointer; font-size: 14px; line-height: 1; padding: 0 2px;
+}
+.yt-notes-pop__del:hover { color: #b04b4b; }
+.yt-notes-pop__add {
+  display: flex; gap: 5px; margin-top: 9px;
+  border-top: 1px solid var(--line); padding-top: 9px;
+}
+.yt-notes-pop__t { width: 58px; }
+.yt-notes-pop__t, .yt-notes-pop__text {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 5px 7px;
+  font-family: inherit;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--ink);
+  min-width: 0;
+}
+.yt-notes-pop__text { flex: 1; }
+.yt-notes-pop__addbtn {
+  border: none; background: var(--accent); color: var(--accent-ink);
+  font-size: 11.5px; font-weight: 600;
+  border-radius: 6px; padding: 5px 10px; cursor: pointer;
+}

@@ -7,6 +7,7 @@
 
 import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js";
 import { youtubeEmbedUrl } from "../youtube/youtube.js";
+import { YouTubePlayer, fireCrossings, formatTime, parseTime } from "../youtube/timednotes.js";
 import { pushUndoSnapshot, resetUndo, canUndo, popUndoSnapshot } from "./undo.js";
 import { alphaClipPath } from "./silhouette.js";
 
@@ -75,6 +76,8 @@ export class ItemLayer {
   // Swap the whole canvas: clear the current nodes and render another canvas's
   // items. The store rebinds `items` to the opened canvas.
   loadCanvas(id) {
+    this._activeEmbed?.stop(); // a playing video must not keep ticking into another canvas
+    this.closeTimedNotes();
     for (const el of this.nodes.values()) el.remove();
     this.nodes.clear();
     this.selected = null;
@@ -90,6 +93,7 @@ export class ItemLayer {
   undo() {
     if (!canUndo()) return;
     this._activeEmbed?.stop();
+    this.closeTimedNotes();
     const ok = popUndoSnapshot();
     if (!ok) return;
     for (const el of this.nodes.values()) el.remove();
@@ -283,7 +287,7 @@ export class ItemLayer {
       ytCard = document.createElement("div");
       ytCard.className = "yt-card";
       ytPoster = this._buildYtPoster(item);
-      ytCard.append(ytPoster, ytTitleEl(item), this._buildYtEditBtn());
+      ytCard.append(ytPoster, ytTitleEl(item), this._buildYtEditBtn(), this._buildYtNoteCount(item));
       el.appendChild(ytCard);
     }
     let linkOpen = null;
@@ -531,6 +535,17 @@ export class ItemLayer {
     }
   }
 
+  /** The quiet "this video has N timed notes" badge on the poster. */
+  _buildYtNoteCount(item) {
+    const el = document.createElement("div");
+    el.className = "yt-note-count";
+    const n = (item.timeNotes || []).length;
+    el.textContent = n ? `🕒 ${n}` : "";
+    el.hidden = !n;
+    el.title = "Notes pinned to moments in this video";
+    return el;
+  }
+
   _buildYtEditBtn() {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -548,7 +563,7 @@ export class ItemLayer {
     const el = card.closest(".item");
     if (!playing) {
       card.innerHTML = "";
-      card.append(this._buildYtPoster(item), ytTitleEl(item), this._buildYtEditBtn());
+      card.append(this._buildYtPoster(item), ytTitleEl(item), this._buildYtEditBtn(), this._buildYtNoteCount(item));
       if (this._activeEmbed?.item === item) this._activeEmbed = null;
       if (item._preBigSize) {
         Object.assign(item, item._preBigSize);
@@ -572,13 +587,208 @@ export class ItemLayer {
     }
     card.innerHTML = "";
     const stop = () => this._setYtPlaying(card, item, false);
-    const { iframe, close } = this._buildEmbedIframe(item.videoId, stop);
+    const { iframe, close } = this._buildEmbedIframe(item.videoId, stop, { jsApi: true });
     iframe.className = "yt-card__iframe";
     close.className = "yt-card__shrink";
     close.title = "Stop (Esc also works)";
     close.textContent = "✕";
     card.append(iframe, close);
-    this._activeEmbed = { item, stop };
+    this._attachTimedNotes(card, item);
+    this._activeEmbed = { item, stop: () => { this._detachTimedNotes(); stop(); } };
+  }
+
+  // ---------- notes pinned to moments in a video ----------
+
+  /** Live playback: surface notes as they come due, and offer to add one here. */
+  _attachTimedNotes(card, item) {
+    this._detachTimedNotes();
+    const iframe = card.querySelector(".yt-card__iframe");
+    if (!iframe) return;
+
+    const toast = document.createElement("div");
+    toast.className = "yt-note-toast";
+    card.appendChild(toast);
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "yt-note-add";
+    addBtn.textContent = "＋ note here";
+    addBtn.title = "Write a note pinned to this moment";
+    addBtn.addEventListener("pointerdown", (e) => e.stopPropagation());
+    addBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const t = this._ytPlayer?.currentTime();
+      if (t == null) { alert("The player isn't reporting a position yet — give it a second."); return; }
+      const text = prompt(`Note at ${formatTime(t)}`);
+      if (text && text.trim()) this.addTimedNote(item, t, text.trim());
+    });
+    card.appendChild(addBtn);
+
+    let prev = null;
+    let toastTimer;
+    this._ytPlayer = new YouTubePlayer(iframe, {
+      onTick: (t) => {
+        const due = fireCrossings(prev, t, item.timeNotes || []);
+        prev = t;
+        if (!due.length) return;
+        // Several at once (a forward jump) read as one stacked note rather
+        // than flickering through them in a few milliseconds.
+        toast.textContent = due.map((n) => n.text).join("  •  ");
+        toast.classList.add("is-on");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove("is-on"), 5200);
+      },
+      onError: () => {
+        addBtn.disabled = true;
+        addBtn.textContent = "notes need youtube";
+        addBtn.title = "Timed notes need YouTube's player, which couldn't be reached";
+      },
+    });
+    this._ytPlayerItemId = item.id;
+  }
+
+  _detachTimedNotes() {
+    this._ytPlayer?.destroy();
+    this._ytPlayer = null;
+    this._ytPlayerItemId = null;
+  }
+
+  /** Add a note pinned to `seconds` of this video, kept in time order. */
+  addTimedNote(item, seconds, text) {
+    pushUndoSnapshot();
+    item.timeNotes = item.timeNotes || [];
+    item.timeNotes.push({ id: newId(), t: Math.max(0, Math.round(seconds)), text });
+    item.timeNotes.sort((a, b) => a.t - b.t);
+    save();
+    this._updateYtNoteCount(item);
+  }
+
+  removeTimedNote(item, noteId) {
+    pushUndoSnapshot();
+    item.timeNotes = (item.timeNotes || []).filter((n) => n.id !== noteId);
+    save();
+    this._updateYtNoteCount(item);
+  }
+
+  /** Jump the playing video to a note's moment (starting playback if needed). */
+  seekToTimedNote(item, seconds) {
+    if (this._ytPlayerItemId === item.id && this._ytPlayer) {
+      this._ytPlayer.seekTo(seconds);
+      return true;
+    }
+    // Not playing yet — start it, then seek once the player reports ready.
+    const card = this.nodes.get(item.id)?.querySelector(".yt-card");
+    if (!card) return false;
+    this._setYtPlaying(card, item, true);
+    const started = Date.now();
+    const trySeek = () => {
+      if (this._ytPlayerItemId !== item.id) return;
+      if (this._ytPlayer?.currentTime() != null) this._ytPlayer.seekTo(seconds);
+      else if (Date.now() - started < 8000) setTimeout(trySeek, 200);
+    };
+    setTimeout(trySeek, 400);
+    return true;
+  }
+
+  /**
+   * Every note for this video in one place, in time order. Each is a way
+   * back to its own moment: click the timestamp and the video jumps there.
+   * Notes can also be added here by hand, for when you know the moment but
+   * aren't sitting through it.
+   */
+  openTimedNotes(item, anchorEl) {
+    this.closeTimedNotes();
+    const pop = document.createElement("div");
+    pop.className = "yt-notes-pop";
+
+    const render = () => {
+      const notes = item.timeNotes || [];
+      pop.innerHTML = `
+        <div class="yt-notes-pop__head">
+          <span>notes in this video</span>
+          <button type="button" class="yt-notes-pop__close" aria-label="Close">×</button>
+        </div>
+        <div class="yt-notes-pop__list"></div>
+        <form class="yt-notes-pop__add">
+          <input class="yt-notes-pop__t" type="text" placeholder="2:14" aria-label="Timestamp" />
+          <input class="yt-notes-pop__text" type="text" placeholder="a note at that moment…" aria-label="Note" />
+          <button type="submit" class="yt-notes-pop__addbtn">add</button>
+        </form>`;
+      const list = pop.querySelector(".yt-notes-pop__list");
+      if (!notes.length) {
+        list.innerHTML = `<p class="yt-notes-pop__empty">Nothing yet. Play the video and use "＋ note here", or add one below.</p>`;
+      }
+      for (const n of notes) {
+        const row = document.createElement("div");
+        row.className = "yt-notes-pop__row";
+        const jump = document.createElement("button");
+        jump.type = "button";
+        jump.className = "yt-notes-pop__time";
+        jump.textContent = formatTime(n.t);
+        jump.title = "Jump to this moment";
+        jump.addEventListener("click", () => this.seekToTimedNote(item, n.t));
+        const body = document.createElement("span");
+        body.className = "yt-notes-pop__body";
+        body.textContent = n.text;
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "yt-notes-pop__del";
+        del.textContent = "×";
+        del.title = "Remove this note";
+        del.addEventListener("click", () => {
+          this.removeTimedNote(item, n.id);
+          render();
+          this._showBar();
+        });
+        row.append(jump, body, del);
+        list.appendChild(row);
+      }
+      pop.querySelector(".yt-notes-pop__close").addEventListener("click", () => this.closeTimedNotes());
+      pop.querySelector(".yt-notes-pop__add").addEventListener("submit", (e) => {
+        e.preventDefault();
+        const tRaw = pop.querySelector(".yt-notes-pop__t").value;
+        const text = pop.querySelector(".yt-notes-pop__text").value.trim();
+        const t = parseTime(tRaw);
+        if (t == null) { alert("Use a timestamp like 2:14."); return; }
+        if (!text) return;
+        this.addTimedNote(item, t, text);
+        render();
+        this._showBar();
+      });
+    };
+    render();
+    document.body.appendChild(pop);
+
+    // Same flip-and-clamp placement the link popovers use, so it can't open
+    // off-screen next to a toolbar or a screen edge.
+    const r = anchorEl.getBoundingClientRect();
+    const w = pop.offsetWidth || 300;
+    const h = pop.offsetHeight || 240;
+    let top = r.bottom + 8;
+    if (top + h > window.innerHeight - 8) top = r.top - h - 8;
+    pop.style.left = Math.min(Math.max(r.left, 8), window.innerWidth - w - 8) + "px";
+    pop.style.top = Math.min(Math.max(top, 8), window.innerHeight - h - 8) + "px";
+
+    const onOutside = (e) => {
+      if (!pop.contains(e.target) && e.target !== anchorEl) this.closeTimedNotes();
+    };
+    setTimeout(() => document.addEventListener("pointerdown", onOutside), 0);
+    this._timedNotesPop = { el: pop, cleanup: () => document.removeEventListener("pointerdown", onOutside) };
+  }
+
+  closeTimedNotes() {
+    if (!this._timedNotesPop) return;
+    this._timedNotesPop.cleanup();
+    this._timedNotesPop.el.remove();
+    this._timedNotesPop = null;
+  }
+
+  _updateYtNoteCount(item) {
+    const badge = this.nodes.get(item.id)?.querySelector(".yt-note-count");
+    if (!badge) return;
+    const n = (item.timeNotes || []).length;
+    badge.textContent = n ? `🕒 ${n}` : "";
+    badge.hidden = !n;
   }
 
   // A big-but-reasonable target size, in world units, so it reads as the
@@ -600,9 +810,9 @@ export class ItemLayer {
   // close button (below) covers the non-native case, and this class also
   // listens for Escape itself (see the keydown handler in the constructor)
   // so it works as an exit even without ever touching real fullscreen.
-  _buildEmbedIframe(videoId, onClose) {
+  _buildEmbedIframe(videoId, onClose, { jsApi = false } = {}) {
     const iframe = document.createElement("iframe");
-    iframe.src = youtubeEmbedUrl(videoId, { autoplay: true });
+    iframe.src = youtubeEmbedUrl(videoId, { autoplay: true, jsApi });
     iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
     iframe.allowFullscreen = true;
     iframe.setAttribute("frameborder", "0");
@@ -754,6 +964,14 @@ export class ItemLayer {
     fontRow.style.display = item?.type === "text" ? "" : "none";
     this.bar.querySelector("#itemFontSize").value = item?.fontSize || 16;
 
+    // Timed notes — YouTube items only, with a count once there are any.
+    const tnBtn = this.bar.querySelector('[data-act="timednotes"]');
+    tnBtn.style.display = item?.type === "youtube" ? "" : "none";
+    if (item?.type === "youtube") {
+      const n = (item.timeNotes || []).length;
+      tnBtn.textContent = n ? `🕒 notes (${n})` : "🕒 notes";
+    }
+
     // Shape-from-a-photo — text items only. "clear" only when there's a
     // shape to clear.
     const shapeBtn = this.bar.querySelector('[data-act="noteshape"]');
@@ -817,6 +1035,10 @@ export class ItemLayer {
     this.bar.querySelector("#itemOpacity").addEventListener("input", (e) =>
       this.setOpacity(e.target.value / 100)
     );
+    this.bar.querySelector('[data-act="timednotes"]').addEventListener("click", (e) => {
+      const item = this._get(this.selected);
+      if (item?.type === "youtube") this.openTimedNotes(item, e.currentTarget);
+    });
     this.bar.querySelector('[data-act="noteshape"]').addEventListener("click", () => {
       const item = this._get(this.selected);
       if (item?.type === "text") this.onPickNoteShape?.(item);

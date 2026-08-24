@@ -27,8 +27,16 @@ export function youtubeThumbnail(videoId) {
 export function youtubeWatchUrl(videoId) {
   return `https://www.youtube.com/watch?v=${videoId}`;
 }
-export function youtubeEmbedUrl(videoId, { autoplay = false } = {}) {
-  return `https://www.youtube.com/embed/${videoId}?rel=0${autoplay ? "&autoplay=1" : ""}`;
+export function youtubeEmbedUrl(videoId, { autoplay = false, jsApi = false } = {}) {
+  // enablejsapi=1 is what lets the IFrame Player API attach to this frame
+  // and report playback position — the basis of timed notes. origin= is
+  // required alongside it, and harmless otherwise.
+  const params = [
+    "rel=0",
+    autoplay ? "autoplay=1" : "",
+    jsApi ? `enablejsapi=1&origin=${encodeURIComponent(location.origin)}` : "",
+  ].filter(Boolean);
+  return `https://www.youtube.com/embed/${videoId}?${params.join("&")}`;
 }
 
 /** Best-effort title lookup — returns null (never throws) if offline or blocked. */

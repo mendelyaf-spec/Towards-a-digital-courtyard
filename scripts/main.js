@@ -13,7 +13,7 @@ import { openLinkPrompt, closeLinkPrompt, setPhotoEditor } from "../links/links.
 import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
 import { renderCourtyard } from "./courtyard.js";
-import { migrate, getCanvas, createCanvas, listCanvases, renameCanvas, save } from "./store.js";
+import { migrate, getCanvas, createCanvas, listCanvases, renameCanvas, save, items } from "./store.js";
 import { canUndo, setUndoChangeListener } from "./undo.js";
 import { consumeInvite } from "../courtyardcreationlogic.js";
 
@@ -341,6 +341,11 @@ setUndoChangeListener(refreshUndoBtn);
 if (/Mobi|Android|iPhone|iPad/.test(navigator.userAgent)) {
   photoCamera.setAttribute("capture", "environment");
 }
+
+// A small, deliberate window into the live layer for automated checks —
+// the canvas subsystem is otherwise entirely module-private.
+window.__layer = layer;
+Object.defineProperty(window, "__items", { get: () => items });
 
 // ---------- views ----------
 function showView(name) {
