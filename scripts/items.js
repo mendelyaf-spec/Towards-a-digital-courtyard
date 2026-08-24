@@ -44,6 +44,8 @@ export class ItemLayer {
     this.getPocketDropRect = null; // hook: () -> DOMRect | null — where "drag to pocket" drops
     this.onSendToPocket = null;    // hook: async(item) -> boolean — true if the pocket accepted it
     this.onOpenLink = null;        // hook: (url, title) -> void — opens the in-app browser, if wired
+    this.onPickNoteShape = null;   // hook: (item) -> void — pick a photo whose cutout becomes this note's shape
+    this.onReadNote = null;        // hook: (item) -> void — open a note for reading
     this._activeEmbed = null;      // { item, stop() } for whichever embed is currently playing, if any
 
     this.bar = document.getElementById("itemBar");
@@ -148,7 +150,7 @@ export class ItemLayer {
   // `near` places the item's top-left at a world point; `nearCenter` places
   // its CENTER there instead (used for "drag from the pocket and drop it
   // here") — works with whatever w/h ends up resolved, default or explicit.
-  add(type, { src, w, h, text, parentId, near, nearCenter, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl, thumbnailImage, thumbnailText, noteShape } = {}) {
+  add(type, { src, w, h, text, parentId, near, nearCenter, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl, thumbnailImage, thumbnailText, shapeSrc } = {}) {
     pushUndoSnapshot();
     // Type-specific defaults must be resolved BEFORE the generic 160x160
     // fallback below, or `w || 160` there clobbers them and every text/file/
@@ -194,7 +196,7 @@ export class ItemLayer {
       // Black on white by default — not tied to whatever the ink/drawing
       // color happens to be set to, which used to leave fresh notes in
       // whatever color you last drew with.
-      ...(type === "text" ? { text: text ?? "", color: "#1a1a1a", bgColor: "#ffffff", fontSize: 16, noteShape: noteShape || "note" } : {}),
+      ...(type === "text" ? { text: text ?? "", color: "#1a1a1a", bgColor: "#ffffff", fontSize: 16, ...(shapeSrc ? { shapeSrc } : {}) } : {}),
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
       ...(type === "link" ? { url, name: name || domain || "link", domain: domain || "", faviconUrl: faviconUrl || "" } : {}),
@@ -213,9 +215,6 @@ export class ItemLayer {
   _render(item) {
     const el = document.createElement("div");
     el.className = `item item--${item.type}`;
-    // A note's shape is a class, so restyling it later is a class swap
-    // rather than a re-render (see setNoteShape).
-    if (item.type === "text") el.classList.add(`shape-${item.noteShape || "note"}`);
     el.dataset.id = item.id;
     this._layout(el, item);
 
@@ -234,23 +233,37 @@ export class ItemLayer {
     }
     let fileOpen = null;
     if (item.type === "text") {
+      // A note can wear a photo's shape: the cutout becomes the note's own
+      // outline (clip-path from its alpha, same tracer the canvas photos
+      // use) with the words sitting inside it.
+      if (item.shapeSrc) {
+        el.classList.add("has-shape");
+        const shapeImg = document.createElement("img");
+        shapeImg.className = "text-shape";
+        shapeImg.src = item.shapeSrc;
+        shapeImg.alt = "";
+        shapeImg.draggable = false;
+        el.appendChild(shapeImg);
+        this._applyNoteShapeClip(el, item);
+      }
       const t = document.createElement("div");
       t.className = "text-body";
       t.textContent = item.text || "";
       t.style.color = item.color || this.color;
       t.style.fontSize = (item.fontSize || 16) + "px";
       el.appendChild(t);
-      // A note that came from an uploaded text file keeps a way back to the
-      // whole document — the note may be truncated, and the margin notes
-      // live there rather than on the canvas.
-      if (item.pocketId) {
-        fileOpen = document.createElement("button");
-        fileOpen.type = "button";
-        fileOpen.className = "text-doc-open";
-        fileOpen.textContent = "read full";
-        fileOpen.title = "Open the whole document, with its margin notes";
-        el.appendChild(fileOpen);
-      }
+      // Every note gets a way to open and READ it — the words on the canvas
+      // may be truncated, or squeezed inside a shape, or both. A note that
+      // came from an uploaded file opens the whole document (with its margin
+      // notes); any other note opens its own text.
+      fileOpen = document.createElement("button");
+      fileOpen.type = "button";
+      fileOpen.className = "text-doc-open";
+      fileOpen.textContent = item.pocketId ? "read full" : "read";
+      fileOpen.title = item.pocketId
+        ? "Open the whole document, with its margin notes"
+        : "Open and read this note";
+      el.appendChild(fileOpen);
     }
     if (item.type === "file") {
       const card = document.createElement("div");
@@ -423,6 +436,24 @@ export class ItemLayer {
     clipEl.style.clipPath = clipPath;
   }
 
+  // Traces a note's shape-photo silhouette into a clip-path on the note
+  // itself, so the note really IS that shape — its edges, its hit area —
+  // rather than a rectangle showing a picture. Shares the same per-src
+  // cache as canvas photos, so the same cutout is only ever traced once.
+  async _applyNoteShapeClip(el, item) {
+    const src = item.shapeSrc;
+    if (!src) return;
+    let clipPath = this._shapeClipCache.get(src);
+    if (clipPath === undefined) {
+      clipPath = await alphaClipPath(src).catch(() => null);
+      this._shapeClipCache.set(src, clipPath);
+    }
+    // The node can be re-rendered or reused for another item while an async
+    // trace is in flight — only apply if this element is still this item's.
+    if (!clipPath || !this.world.contains(el) || this._get(item.id)?.shapeSrc !== src) return;
+    el.style.clipPath = clipPath;
+  }
+
   // Fades just the shape's fill / wash — text, ink, image, and controls
   // stay fully visible so text placed on a lighter shape reads clearly.
   _applyFill(el, item) {
@@ -433,11 +464,14 @@ export class ItemLayer {
       return;
     }
     if (item.type === "text") {
-      // The 'plain' shape is the words with no card at all, so it keeps no
-      // background whatever the note-background swatch says — clearing the
-      // inline value lets the stylesheet's transparent rule stand.
-      if (item.noteShape === "plain") {
+      // A note wearing a photo's shape has no card of its own — the photo
+      // IS the card, and opacity fades the photo rather than a fill. The
+      // inline background is cleared so the stylesheet's transparent rule
+      // for .item--text.has-shape can stand.
+      if (item.shapeSrc) {
         el.style.backgroundColor = "";
+        const shapeImg = el.querySelector(".text-shape");
+        if (shapeImg) shapeImg.style.opacity = op;
         return;
       }
       // item.color is the text's own foreground — the background is its
@@ -703,10 +737,12 @@ export class ItemLayer {
       opRow.style.display = "";
       opInput.value = Math.round((item.embed.showThumbnail ? item.embed.thumbnailOpacity ?? 1 : 0) * 100);
       opRow.querySelector("span").textContent = "preview";
-    } else if (item?.type === "text") {
-      // A text item's "fill" is just a faint wash behind the words — not
+    } else if (item?.type === "text" && !item.shapeSrc) {
+      // A plain note's "fill" is just a faint wash behind the words — not
       // something worth a control of its own; font size covers what people
-      // actually mean to adjust here.
+      // actually mean to adjust here. A note wearing a PHOTO's shape is a
+      // different matter: there the slider fades the photo itself, which is
+      // very much worth reaching for, so it stays available below.
       opRow.style.display = "none";
     } else {
       opRow.style.display = "";
@@ -718,15 +754,14 @@ export class ItemLayer {
     fontRow.style.display = item?.type === "text" ? "" : "none";
     this.bar.querySelector("#itemFontSize").value = item?.fontSize || 16;
 
-    // Note-shape picker — text items only, with the current shape lit.
-    const shapes = this.bar.querySelector("#itemNoteShapes");
-    shapes.style.display = item?.type === "text" ? "" : "none";
-    if (item?.type === "text") {
-      const cur = item.noteShape || "note";
-      shapes.querySelectorAll(".item-bar__shape").forEach((b) =>
-        b.classList.toggle("is-on", b.dataset.shape === cur)
-      );
-    }
+    // Shape-from-a-photo — text items only. "clear" only when there's a
+    // shape to clear.
+    const shapeBtn = this.bar.querySelector('[data-act="noteshape"]');
+    const shapeClear = this.bar.querySelector('[data-act="noteshape-clear"]');
+    const isText = item?.type === "text";
+    shapeBtn.style.display = isText ? "" : "none";
+    shapeClear.style.display = isText && item.shapeSrc ? "" : "none";
+    shapeBtn.textContent = item?.shapeSrc ? "🖼 change shape" : "🖼 shape";
 
     // Same button opens the same popover either way, but its label should
     // say "edit" once there's something to edit (and remove) — "attach"
@@ -782,10 +817,13 @@ export class ItemLayer {
     this.bar.querySelector("#itemOpacity").addEventListener("input", (e) =>
       this.setOpacity(e.target.value / 100)
     );
-    this.bar.querySelector("#itemNoteShapes").addEventListener("click", (e) => {
-      const btn = e.target.closest(".item-bar__shape");
-      if (btn) this.setNoteShape(btn.dataset.shape);
+    this.bar.querySelector('[data-act="noteshape"]').addEventListener("click", () => {
+      const item = this._get(this.selected);
+      if (item?.type === "text") this.onPickNoteShape?.(item);
     });
+    this.bar.querySelector('[data-act="noteshape-clear"]').addEventListener("click", () =>
+      this.setNoteShapeImage(null)
+    );
     this.bar.querySelector("#itemFontSize").addEventListener("input", (e) =>
       this.setFontSize(Number(e.target.value))
     );
@@ -884,31 +922,17 @@ export class ItemLayer {
     save();
   }
 
-  /** The shape a note comes in — 'note' | 'rect' | 'round' | 'circle' | 'plain'. */
-  setNoteShape(shape) {
+  /** Give a note a photo's shape (a cutout data URL), or clear it with null. */
+  setNoteShapeImage(src) {
     const item = this._get(this.selected);
     if (!item || item.type !== "text") return;
     pushUndoSnapshot();
-    const el = this.nodes.get(item.id);
-    el?.classList.remove(`shape-${item.noteShape || "note"}`);
-    item.noteShape = shape;
-    el?.classList.add(`shape-${shape}`);
-    // 'plain' toggles the background off (and back on when leaving it), so
-    // the fill has to be re-evaluated rather than just swapping classes.
-    this._applyFill(el, item);
-    // A circle wants equal sides to actually read as a circle rather than
-    // an ellipse — square it up on the way in, from its larger side so no
-    // text is lost.
-    if (shape === "circle") {
-      const d = Math.max(item.w, item.h);
-      item.w = d;
-      item.h = d;
-      this._layout(el, item);
-      this.positionBar();
-    }
+    if (src) item.shapeSrc = src;
+    else delete item.shapeSrc;
     save();
-    this._showBar(); // reflect the new selection state in the bar
+    this._reRender(item); // the shape image and its clip-path are structural
   }
+
 
   setOpacity(op) {
     const item = this._get(this.selected);
@@ -1031,6 +1055,8 @@ export class ItemLayer {
       fileOpen.addEventListener("pointerdown", (e) => e.stopPropagation());
       fileOpen.addEventListener("click", async (e) => {
         e.stopPropagation();
+        // A plain note has no file behind it — it just opens its own words.
+        if (item.type === "text" && !item.pocketId) { this.onReadNote?.(item); return; }
         if (!item.pocketId) { alert("This file isn't available."); return; }
         if (this.onOpenDoc && (await this.onOpenDoc(item.pocketId))) return;
         if (!this.resolveFileUrl) { alert("This file isn't available."); return; }

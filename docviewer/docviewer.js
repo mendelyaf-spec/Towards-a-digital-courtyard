@@ -146,6 +146,48 @@ export class DocViewer {
     return !!(a && a.classList?.contains("docviewer__note-input"));
   }
 
+  /**
+   * Read a plain canvas note: its words, large and legible, the same way a
+   * link opens to be read — and editable here, since a note squeezed into
+   * a photo's shape can't practically be edited in place on the canvas.
+   * No margin: marginalia belongs to a document, and a note IS the note.
+   */
+  openNote(item, onSave) {
+    const token = ++this._token;
+    this.recordId = null;
+    this.annotations = [];
+    this.pages = [];
+    this.titleEl.textContent = "note";
+    this.hintEl.textContent = "Edit freely — changes save as you type.";
+    this.pagesEl.innerHTML = "";
+    this.marginEl.innerHTML = "";
+    this.el.hidden = false;
+    this.el.classList.add("is-note");
+
+    const page = document.createElement("div");
+    page.className = "docviewer__page docviewer__page--text";
+    const area = document.createElement("textarea");
+    area.className = "docviewer__noteedit";
+    area.value = item.text || "";
+    area.placeholder = "…";
+    page.appendChild(area);
+    this.pagesEl.appendChild(page);
+    area.focus();
+
+    let timer;
+    area.addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (this._token === token) onSave?.(area.value);
+      }, 300);
+    });
+    // Don't let a pending debounce drop the last keystrokes on close.
+    this._flushNote = () => {
+      clearTimeout(timer);
+      if (area.value !== (item.text || "")) onSave?.(area.value);
+    };
+  }
+
   async open(record) {
     const token = ++this._token;
     this.recordId = record.id;
@@ -154,6 +196,8 @@ export class DocViewer {
     this.marginEl.innerHTML = "";
     this.pages = [];
     this.el.hidden = false;
+    this.el.classList.remove("is-note");
+    this._flushNote = null;
     this.hintEl.textContent = "Loading…";
 
     try {
@@ -181,6 +225,9 @@ export class DocViewer {
   }
 
   close() {
+    this._flushNote?.();
+    this._flushNote = null;
+    this.el.classList.remove("is-note");
     this._token++; // orphan any in-flight render
     this.el.hidden = true;
     this.pagesEl.innerHTML = "";

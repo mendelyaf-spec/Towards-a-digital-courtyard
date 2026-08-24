@@ -60,6 +60,8 @@
       </button>
       <input id="photoCamera" class="visually-hidden" type="file" accept="image/*" capture="environment" />
       <input id="photoUpload" class="visually-hidden" type="file" accept="image/*,video/*,application/pdf,text/*,.md,.markdown,.csv,.log,.json" />
+      <!-- Picking a photo whose cut-out silhouette becomes a note's shape -->
+      <input id="noteShapeUpload" class="visually-hidden" type="file" accept="image/*" />
       <span class="toolbar__sep" aria-hidden="true"></span>
       <button class="tool tool--link" id="linkBtn" type="button" title="Embed a YouTube video, or drop a link to any page">
         <span class="tool__glyph tool__glyph--link">🔗</span>
@@ -127,13 +129,8 @@
       <span>Aa</span>
       <input id="itemFontSize" type="range" min="10" max="48" value="16" />
     </label>
-    <div class="item-bar__shapes" id="itemNoteShapes" title="The shape this note comes in">
-      <button class="item-bar__shape" data-shape="note" type="button" title="Note">▢</button>
-      <button class="item-bar__shape" data-shape="rect" type="button" title="Square corners">▭</button>
-      <button class="item-bar__shape" data-shape="round" type="button" title="Rounded">⬭</button>
-      <button class="item-bar__shape" data-shape="circle" type="button" title="Circle">◯</button>
-      <button class="item-bar__shape" data-shape="plain" type="button" title="Just the words">T</button>
-    </div>
+    <button class="item-bar__btn" data-act="noteshape" type="button" title="Give this note the shape of a photo from your computer or camera">🖼 shape</button>
+    <button class="item-bar__btn" data-act="noteshape-clear" type="button" title="Back to the plain note shape">↺</button>
     <button class="item-bar__btn item-bar__btn--clipshape" data-act="clipshape" type="button" title="Limit the buried link's preview to this photo's own outline instead of its whole box">🍃 clip to shape</button>
     <button class="item-bar__btn" data-act="draw" type="button" title="Draw on this">✎ draw</button>
     <button class="item-bar__btn" data-act="note" type="button" title="Attach a note">＋ note</button>

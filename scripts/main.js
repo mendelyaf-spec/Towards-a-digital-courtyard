@@ -89,6 +89,44 @@ for (const btn of document.querySelectorAll(".tool[data-shape]")) {
   });
 }
 
+// ---------- a note's shape comes from a photo ----------
+// Pick a photo (computer or camera), cut its subject out with the same
+// studio every other photo goes through, and the resulting silhouette
+// becomes the note's own outline. The note keeps its words, its colours
+// and its opacity — only its shape changes.
+// One image input, deliberately WITHOUT capture= — that's what makes a
+// phone offer camera and photo library and files in its own native sheet,
+// so "from my computer/camera" is one control rather than a choice we'd
+// have to invent a dialog for.
+const noteShapeUpload = document.getElementById("noteShapeUpload");
+
+layer.onPickNoteShape = () => {
+  noteShapeUpload.value = "";
+  noteShapeUpload.click();
+};
+
+async function useAsNoteShape(file) {
+  if (!file) return;
+  await studio.open(
+    file,
+    (dataURL) => layer.setNoteShapeImage(dataURL),
+    null,
+    { position: "item", placeLabel: "use this shape" }
+  );
+}
+noteShapeUpload.addEventListener("change", (e) => useAsNoteShape(e.target.files?.[0]));
+
+// Reading a note: its words open large and legible — the same "open it and
+// read it" the in-app browser gives a link — while it stays whatever shape
+// and opacity you gave it on the canvas.
+layer.onReadNote = (item) => {
+  docViewer.openNote(item, (text) => {
+    item.text = text;
+    save();
+    layer._reRender(item);
+  });
+};
+
 const photoBtn = document.getElementById("photoBtn");
 const photoMenu = document.getElementById("photoMenu");
 const photoCamera = document.getElementById("photoCamera");
@@ -170,59 +208,6 @@ async function handleUploadedFile(file) {
 // what a note can hold before it stops being a note and starts being a wall.
 const TEXT_NOTE_MAX = 1200;
 
-const NOTE_SHAPES = [
-  ["note", "▢", "note"],
-  ["rect", "▭", "square corners"],
-  ["round", "⬭", "rounded"],
-  ["circle", "◯", "circle"],
-  ["plain", "T", "just the words"],
-];
-
-/**
- * Pick the shape an uploaded text file comes in. Resolves to a shape name,
- * or null if dismissed. Every choice here is equally changeable afterward
- * from the item bar — this just saves a step for the common case.
- */
-function askNoteShape() {
-  return new Promise((resolve) => {
-    const pop = document.createElement("div");
-    pop.className = "shape-pop";
-    pop.innerHTML = `
-      <div class="shape-pop__panel" role="dialog" aria-modal="true" aria-label="Choose a shape">
-        <p class="shape-pop__label">how should this come in?</p>
-        <div class="shape-pop__row">
-          ${NOTE_SHAPES.map(
-            ([id, glyph, label]) =>
-              `<button type="button" class="shape-pop__opt" data-shape="${id}">
-                 <span class="shape-pop__glyph">${glyph}</span><span>${label}</span>
-               </button>`
-          ).join("")}
-        </div>
-        <p class="shape-pop__hint">You can change this later from the item bar.</p>
-      </div>`;
-    document.body.appendChild(pop);
-
-    let done = false;
-    const finish = (value) => {
-      if (done) return;
-      done = true;
-      document.removeEventListener("keydown", onKey);
-      pop.remove();
-      resolve(value);
-    };
-    const onKey = (e) => {
-      if (e.key === "Escape") finish(null);
-      if (e.key === "Enter") finish("note");
-    };
-    document.addEventListener("keydown", onKey);
-    pop.addEventListener("click", (e) => {
-      if (e.target === pop) return finish(null); // the backdrop
-      const btn = e.target.closest(".shape-pop__opt");
-      if (btn) finish(btn.dataset.shape);
-    });
-    pop.querySelector(".shape-pop__opt")?.focus();
-  });
-}
 
 async function placeDocument(file) {
   // Everything readable is kept in the pocket, which is what gives it a
@@ -238,21 +223,11 @@ async function placeDocument(file) {
       /* unreadable as text after all — fall through to a document card */
     }
     if (text.trim()) {
-      // Choose the shape it comes in before it lands — 'note' is the
-      // default, and every option here is also changeable afterward from
-      // the item bar, so this is a head start, not a commitment.
-      const noteShape = await askNoteShape();
-      if (noteShape === null) return; // cancelled — the file still sits in the pocket
       const truncated = text.length > TEXT_NOTE_MAX;
-      const isRound = noteShape === "circle" || noteShape === "round";
-      const w = isRound ? 260 : 300;
       const item = layer.add("text", {
         text: truncated ? text.slice(0, TEXT_NOTE_MAX).trimEnd() + "…" : text,
-        noteShape,
-        w,
-        // A circle has to be square to read as a circle; the others grow
-        // with roughly how much text there is.
-        h: noteShape === "circle" ? w : Math.min(420, Math.max(90, Math.round(text.length / 3.2))),
+        w: 300,
+        h: Math.min(420, Math.max(90, Math.round(text.length / 3.2))),
       });
       // Keep the tie to the full document either way, so "open" in the
       // viewer always reaches the complete file and its marginalia.

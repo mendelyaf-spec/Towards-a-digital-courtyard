@@ -192,3 +192,22 @@
   .docviewer__margin { min-height: 0; }
   .docviewer__note { position: static; margin-bottom: 10px; }
 }
+
+/* ---- note mode: reading (and editing) a single canvas note ---- */
+/* A note has no margin — marginalia belongs to a document; a note IS the
+   note — so the body collapses to one column. */
+.docviewer.is-note .docviewer__body { grid-template-columns: 1fr; }
+.docviewer.is-note .docviewer__margin { display: none; }
+.docviewer__noteedit {
+  display: block;
+  width: 100%;
+  min-height: 55vh;
+  border: none;
+  outline: none;
+  resize: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 17px;
+  line-height: 1.7;
+}
