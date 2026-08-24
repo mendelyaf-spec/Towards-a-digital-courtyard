@@ -148,7 +148,7 @@ export class ItemLayer {
   // `near` places the item's top-left at a world point; `nearCenter` places
   // its CENTER there instead (used for "drag from the pocket and drop it
   // here") — works with whatever w/h ends up resolved, default or explicit.
-  add(type, { src, w, h, text, parentId, near, nearCenter, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl, thumbnailImage, thumbnailText } = {}) {
+  add(type, { src, w, h, text, parentId, near, nearCenter, pocketId, name, mime, location, videoId, title, thumbnailUrl, url, domain, faviconUrl, thumbnailImage, thumbnailText, noteShape } = {}) {
     pushUndoSnapshot();
     // Type-specific defaults must be resolved BEFORE the generic 160x160
     // fallback below, or `w || 160` there clobbers them and every text/file/
@@ -194,7 +194,7 @@ export class ItemLayer {
       // Black on white by default — not tied to whatever the ink/drawing
       // color happens to be set to, which used to leave fresh notes in
       // whatever color you last drew with.
-      ...(type === "text" ? { text: text ?? "", color: "#1a1a1a", bgColor: "#ffffff", fontSize: 16 } : {}),
+      ...(type === "text" ? { text: text ?? "", color: "#1a1a1a", bgColor: "#ffffff", fontSize: 16, noteShape: noteShape || "note" } : {}),
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
       ...(type === "link" ? { url, name: name || domain || "link", domain: domain || "", faviconUrl: faviconUrl || "" } : {}),
@@ -213,6 +213,9 @@ export class ItemLayer {
   _render(item) {
     const el = document.createElement("div");
     el.className = `item item--${item.type}`;
+    // A note's shape is a class, so restyling it later is a class swap
+    // rather than a re-render (see setNoteShape).
+    if (item.type === "text") el.classList.add(`shape-${item.noteShape || "note"}`);
     el.dataset.id = item.id;
     this._layout(el, item);
 
@@ -430,6 +433,13 @@ export class ItemLayer {
       return;
     }
     if (item.type === "text") {
+      // The 'plain' shape is the words with no card at all, so it keeps no
+      // background whatever the note-background swatch says — clearing the
+      // inline value lets the stylesheet's transparent rule stand.
+      if (item.noteShape === "plain") {
+        el.style.backgroundColor = "";
+        return;
+      }
       // item.color is the text's own foreground — the background is its
       // own separate field, not the same "fill" every other shape has.
       const rgb = (item.bgColor && hexToRgb(item.bgColor)) || hexToRgb("#ffffff");
@@ -708,6 +718,16 @@ export class ItemLayer {
     fontRow.style.display = item?.type === "text" ? "" : "none";
     this.bar.querySelector("#itemFontSize").value = item?.fontSize || 16;
 
+    // Note-shape picker — text items only, with the current shape lit.
+    const shapes = this.bar.querySelector("#itemNoteShapes");
+    shapes.style.display = item?.type === "text" ? "" : "none";
+    if (item?.type === "text") {
+      const cur = item.noteShape || "note";
+      shapes.querySelectorAll(".item-bar__shape").forEach((b) =>
+        b.classList.toggle("is-on", b.dataset.shape === cur)
+      );
+    }
+
     // Same button opens the same popover either way, but its label should
     // say "edit" once there's something to edit (and remove) — "attach"
     // reads like a dead end once a link is already there.
@@ -762,6 +782,10 @@ export class ItemLayer {
     this.bar.querySelector("#itemOpacity").addEventListener("input", (e) =>
       this.setOpacity(e.target.value / 100)
     );
+    this.bar.querySelector("#itemNoteShapes").addEventListener("click", (e) => {
+      const btn = e.target.closest(".item-bar__shape");
+      if (btn) this.setNoteShape(btn.dataset.shape);
+    });
     this.bar.querySelector("#itemFontSize").addEventListener("input", (e) =>
       this.setFontSize(Number(e.target.value))
     );
@@ -858,6 +882,32 @@ export class ItemLayer {
     item.bgColor = c;
     this._applyFill(this.nodes.get(item.id), item);
     save();
+  }
+
+  /** The shape a note comes in — 'note' | 'rect' | 'round' | 'circle' | 'plain'. */
+  setNoteShape(shape) {
+    const item = this._get(this.selected);
+    if (!item || item.type !== "text") return;
+    pushUndoSnapshot();
+    const el = this.nodes.get(item.id);
+    el?.classList.remove(`shape-${item.noteShape || "note"}`);
+    item.noteShape = shape;
+    el?.classList.add(`shape-${shape}`);
+    // 'plain' toggles the background off (and back on when leaving it), so
+    // the fill has to be re-evaluated rather than just swapping classes.
+    this._applyFill(el, item);
+    // A circle wants equal sides to actually read as a circle rather than
+    // an ellipse — square it up on the way in, from its larger side so no
+    // text is lost.
+    if (shape === "circle") {
+      const d = Math.max(item.w, item.h);
+      item.w = d;
+      item.h = d;
+      this._layout(el, item);
+      this.positionBar();
+    }
+    save();
+    this._showBar(); // reflect the new selection state in the bar
   }
 
   setOpacity(op) {

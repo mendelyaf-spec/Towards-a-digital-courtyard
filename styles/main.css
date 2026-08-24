@@ -271,6 +271,26 @@ html, body {
   display: flex;
   align-items: center;
 }
+/* The shape a note comes in — chosen when a text file is uploaded, and
+   changeable afterward from the item bar (items.js, item.noteShape).
+   'note' is the default and is the bare .item--text above. */
+.item--text.shape-rect {
+  border-style: solid;
+  border-radius: 0;
+}
+.item--text.shape-round {
+  border-radius: 999px;
+}
+.item--text.shape-circle {
+  border-radius: 50%;
+}
+/* 'plain' is the words alone — no card, no edge. Its background stays
+   fully transparent regardless of the note-background swatch, which
+   items.js honors by skipping the fill for this shape. */
+.item--text.shape-plain {
+  border-color: transparent;
+  background: transparent;
+}
 .text-body {
   width: 100%;
   padding: 8px 10px;
@@ -279,6 +299,15 @@ html, body {
   outline: none;
   word-break: break-word;
   cursor: text;
+}
+/* Round and circular notes need their text pulled in off the curve, and
+   centered — text sitting flush in a corner would fall outside the shape. */
+.item--text.shape-round .text-body,
+.item--text.shape-circle .text-body {
+  text-align: center;
+  padding: 10% 16%;
+  max-height: 100%;
+  overflow: hidden;
 }
 .item--file {
   background: rgba(239, 231, 210, 1);
@@ -579,6 +608,85 @@ html, body {
 }
 .item-bar__btn:hover { background: rgba(176,125,75,.12); }
 .item-bar__btn.is-on { background: var(--accent); color: var(--accent-ink); }
+
+/* "How should this come in?" — the shape chooser shown when a text file is
+   uploaded. Above the studio (65) since it can follow the same upload. */
+.shape-pop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  background: rgba(40, 34, 26, .5);
+  backdrop-filter: blur(2px);
+  padding: 16px;
+}
+.shape-pop__label {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: center;
+}
+.shape-pop__panel {
+  width: min(460px, 100%);
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 20px;
+  box-shadow: var(--shadow);
+}
+.shape-pop__row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+.shape-pop__opt {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  width: 78px;
+  padding: 10px 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 11.5px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.shape-pop__opt:hover,
+.shape-pop__opt:focus-visible { border-color: var(--accent); outline: none; }
+.shape-pop__glyph { font-size: 20px; line-height: 1; }
+.shape-pop__hint {
+  margin: 12px 0 0;
+  font-size: 11.5px;
+  color: var(--ink-faint, #9a927a);
+  text-align: center;
+}
+
+/* Note-shape picker (text items only). */
+.item-bar__shapes {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+.item-bar__shape {
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+.item-bar__shape:hover { background: rgba(176,125,75,.12); }
+.item-bar__shape.is-on { background: var(--accent); color: var(--accent-ink); }
 
 /* Text tool glyph in the bottom toolbar */
 .tool__glyph--text {
