@@ -40,6 +40,7 @@ export class ItemLayer {
     this.onVisibility = null; // hook: fired when expand/collapse changes what's visible
     this.onRemove = null;     // hook: fired with the ids removed by a delete
     this.resolveFileUrl = null; // hook: async(pocketId) -> blob URL, for 'file' items (docs/videos from the pocket)
+    this.onOpenDoc = null;    // hook: async(pocketId) -> true if it opened in the document viewer; false to fall back to a new tab
     this.getPocketDropRect = null; // hook: () -> DOMRect | null — where "drag to pocket" drops
     this.onSendToPocket = null;    // hook: async(item) -> boolean — true if the pocket accepted it
     this.onOpenLink = null;        // hook: (url, title) -> void — opens the in-app browser, if wired
@@ -228,6 +229,7 @@ export class ItemLayer {
       this._applyShapeClip(el, item);
       imageClip = clip;
     }
+    let fileOpen = null;
     if (item.type === "text") {
       const t = document.createElement("div");
       t.className = "text-body";
@@ -235,8 +237,18 @@ export class ItemLayer {
       t.style.color = item.color || this.color;
       t.style.fontSize = (item.fontSize || 16) + "px";
       el.appendChild(t);
+      // A note that came from an uploaded text file keeps a way back to the
+      // whole document — the note may be truncated, and the margin notes
+      // live there rather than on the canvas.
+      if (item.pocketId) {
+        fileOpen = document.createElement("button");
+        fileOpen.type = "button";
+        fileOpen.className = "text-doc-open";
+        fileOpen.textContent = "read full";
+        fileOpen.title = "Open the whole document, with its margin notes";
+        el.appendChild(fileOpen);
+      }
     }
-    let fileOpen = null;
     if (item.type === "file") {
       const card = document.createElement("div");
       card.className = "file-card";
@@ -962,12 +974,16 @@ export class ItemLayer {
     const bodyTarget = imageClip || el;
     badge.style.pointerEvents = "none";
 
-    // File cards (docs/videos placed from the pocket) open on their own button.
+    // File cards (docs/videos placed from the pocket) open on their own
+    // button — a readable document goes to the in-app viewer (where its
+    // margin notes live); anything else still just opens in a new tab.
     if (fileOpen) {
       fileOpen.addEventListener("pointerdown", (e) => e.stopPropagation());
       fileOpen.addEventListener("click", async (e) => {
         e.stopPropagation();
-        if (!this.resolveFileUrl || !item.pocketId) { alert("This file isn't available."); return; }
+        if (!item.pocketId) { alert("This file isn't available."); return; }
+        if (this.onOpenDoc && (await this.onOpenDoc(item.pocketId))) return;
+        if (!this.resolveFileUrl) { alert("This file isn't available."); return; }
         const url = await this.resolveFileUrl(item.pocketId);
         if (url) window.open(url, "_blank", "noopener");
         else alert("This file is no longer in your pocket.");

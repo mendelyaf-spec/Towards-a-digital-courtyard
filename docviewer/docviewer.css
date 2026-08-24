@@ -1,0 +1,194 @@
+/* docviewer/docviewer.css — reading a document, and writing in its margin. */
+
+.docviewer {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  background: var(--panel);
+}
+
+.docviewer__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  box-shadow: var(--shadow);
+}
+.docviewer__close {
+  flex: none;
+  border: none;
+  background: rgba(0, 0, 0, .06);
+  color: var(--ink);
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 15px;
+}
+.docviewer__title {
+  flex: none;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  max-width: 40%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.docviewer__hint {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-faint, #9a927a);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.docviewer__body {
+  display: grid;
+  grid-template-columns: 1fr minmax(200px, 280px);
+  gap: 18px;
+  overflow: auto;
+  padding: 20px;
+  background: var(--bg);
+}
+
+.docviewer__pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+.docviewer__page {
+  position: relative;
+  background: #fff;
+  box-shadow: 0 2px 12px rgba(60, 50, 35, .16);
+  border-radius: 4px;
+  overflow: hidden;
+  max-width: 100%;
+}
+.docviewer__page--text {
+  width: min(760px, 100%);
+  padding: 32px 36px;
+  height: auto;
+}
+.docviewer__text {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.docviewer__canvas { display: block; }
+
+/* PDF.js's text layer: invisible text positioned exactly over the rendered
+   canvas, which is what makes real selection (and therefore highlighting)
+   possible on a PDF at all. */
+.docviewer__textlayer {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 1;
+  opacity: 1;
+}
+.docviewer__textlayer span,
+.docviewer__textlayer br {
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  color: transparent;
+}
+.docviewer__textlayer ::selection { background: rgba(176, 125, 75, .35); }
+
+/* A highlight. On a PDF this sits in the transparent text layer above the
+   canvas, so the wash reads over the real rendered text underneath. */
+.docviewer__hl {
+  background: rgba(240, 200, 90, .45);
+  color: inherit;
+  border-radius: 2px;
+  cursor: pointer;
+}
+.docviewer__page--text .docviewer__hl { background: rgba(240, 200, 90, .6); }
+
+.docviewer__error {
+  font-size: 14px;
+  color: #b04b4b;
+  padding: 24px;
+  text-align: center;
+}
+
+/* ---- the margin ---- */
+.docviewer__margin {
+  position: relative;
+  min-height: 100%;
+}
+.docviewer__margin-empty {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-faint, #9a927a);
+  font-style: italic;
+}
+.docviewer__note {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-left: 3px solid rgba(240, 200, 90, .9);
+  border-radius: 8px;
+  padding: 9px 10px;
+  box-shadow: 0 1px 4px rgba(60, 50, 35, .08);
+  transition: box-shadow .15s ease, border-color .15s ease;
+}
+.docviewer__note.is-active {
+  border-left-color: var(--accent);
+  box-shadow: 0 2px 10px rgba(60, 50, 35, .18);
+}
+.docviewer__note-quote {
+  margin: 0 0 7px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--ink-faint, #9a927a);
+  font-style: italic;
+  cursor: pointer;
+  max-height: 5.8em;
+  overflow: hidden;
+}
+.docviewer__note-quote:hover { color: var(--ink); }
+.docviewer__note-input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 7px;
+  font-family: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--ink);
+  background: var(--bg);
+  resize: vertical;
+}
+.docviewer__note-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.docviewer__note-btn {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.docviewer__note-btn:hover { background: rgba(176, 125, 75, .1); }
+.docviewer__note-btn--del { color: #b04b4b; }
+
+@media (max-width: 720px) {
+  /* No room for a true margin — the notes become a list under the document. */
+  .docviewer__body { grid-template-columns: 1fr; }
+  .docviewer__margin { min-height: 0; }
+  .docviewer__note { position: static; margin-bottom: 10px; }
+}

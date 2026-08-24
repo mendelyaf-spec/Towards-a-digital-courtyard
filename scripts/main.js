@@ -6,13 +6,14 @@ import { ItemLayer } from "./items.js";
 import { Studio } from "./studio.js";
 import { FramePicker } from "../videoframe/videoframe.js";
 import { InAppBrowser } from "../browser/browser.js";
+import { DocViewer, isViewableDoc, isPlainText } from "../docviewer/docviewer.js";
 import { BackgroundLayer } from "../background/background.js";
-import { PocketPanel, getPocketBlobURL, sendItemToPocket } from "../pocket/pocket.js";
+import { PocketPanel, getPocketBlobURL, sendItemToPocket, addToPocket, getPocketItem } from "../pocket/pocket.js";
 import { openLinkPrompt, closeLinkPrompt, setPhotoEditor } from "../links/links.js";
 import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
 import { renderCourtyard } from "./courtyard.js";
-import { migrate, getCanvas, createCanvas, listCanvases, renameCanvas } from "./store.js";
+import { migrate, getCanvas, createCanvas, listCanvases, renameCanvas, save } from "./store.js";
 import { canUndo, setUndoChangeListener } from "./undo.js";
 import { consumeInvite } from "../courtyardcreationlogic.js";
 
@@ -37,6 +38,7 @@ const layer = new ItemLayer(worldEl, viewport);
 const studio = new Studio();
 const framePicker = new FramePicker();
 const inAppBrowser = new InAppBrowser();
+const docViewer = new DocViewer();
 
 // A thumbnail photo (for a link's preview) gets to choose its crop/zoom/
 // rotate before it's used, same as any other photo — but skips subject
@@ -134,13 +136,22 @@ function placeCutout(dataURL, w, h, extra = {}) {
 function posToExtra(pos) {
   return pos ? { imgScale: pos.scale, imgRotate: pos.rotate, imgOffsetX: pos.offsetX, imgOffsetY: pos.offsetY } : {};
 }
-async function handlePhotoFile(file) {
+// Upload is one door for everything now, so it routes by what the file
+// actually is: a video picks a still frame first, a photo goes to the
+// cut-out studio, a plain text file drops its words straight onto the
+// canvas as a note, and a PDF becomes a document card you read (and
+// annotate) in the viewer.
+async function handleUploadedFile(file) {
   if (!file) return;
   if (file.type.startsWith("video/")) {
     // Pick a still frame first — it then flows into the exact same cut-out
     // pipeline as any photo, so nothing downstream needs to know a video
     // was ever involved.
-    framePicker.open(file, (stillFrame) => handlePhotoFile(stillFrame));
+    framePicker.open(file, (stillFrame) => handleUploadedFile(stillFrame));
+    return;
+  }
+  if (isViewableDoc(file.type, file.name)) {
+    await placeDocument(file);
     return;
   }
   // 'background' mode (non-destructive, still adjustable afterward) while
@@ -153,11 +164,58 @@ async function handlePhotoFile(file) {
     { position: bg.mode ? "background" : "item" }
   );
 }
-photoCamera.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
-photoUpload.addEventListener("change", (e) => handlePhotoFile(e.target.files?.[0]));
+
+// How much of a text file goes onto the canvas as a note. The whole file
+// still lives in the pocket and opens in full in the viewer — this is just
+// what a note can hold before it stops being a note and starts being a wall.
+const TEXT_NOTE_MAX = 1200;
+
+async function placeDocument(file) {
+  // Everything readable is kept in the pocket, which is what gives it a
+  // durable home for its blob AND its margin notes (see docviewer.js).
+  const pocketId = await addToPocket(pocket.canvasId, file);
+  if (isPlainText(file.type, file.name)) {
+    // "A text file simply uploads the text": the words land as a real,
+    // editable note in the default note shape — restyle it like any other.
+    let text = "";
+    try {
+      text = await file.text();
+    } catch {
+      /* unreadable as text after all — fall through to a document card */
+    }
+    if (text.trim()) {
+      const truncated = text.length > TEXT_NOTE_MAX;
+      const item = layer.add("text", {
+        text: truncated ? text.slice(0, TEXT_NOTE_MAX).trimEnd() + "…" : text,
+        w: 300,
+        h: Math.min(420, Math.max(90, Math.round(text.length / 3.2))),
+      });
+      // Keep the tie to the full document either way, so "open" in the
+      // viewer always reaches the complete file and its marginalia.
+      item.pocketId = pocketId;
+      item.name = file.name;
+      item.mime = file.type || "text/plain";
+      save();
+      layer._reRender(item);
+      return;
+    }
+  }
+  layer.add("file", { pocketId, name: file.name, mime: file.type || "application/octet-stream" });
+}
+photoCamera.addEventListener("change", (e) => handleUploadedFile(e.target.files?.[0]));
+photoUpload.addEventListener("change", (e) => handleUploadedFile(e.target.files?.[0]));
 
 // ---------- pocket: staged docs/videos/object photos for this canvas ----------
 layer.resolveFileUrl = getPocketBlobURL; // 'file' items open by resolving their pocket blob on click
+// A readable document (PDF / text) opens in the viewer instead of a new
+// tab — that's where its highlights and margin notes live. Returns false
+// for anything else so items.js falls back to the plain new-tab open.
+layer.onOpenDoc = async (pocketId) => {
+  const record = await getPocketItem(pocketId);
+  if (!record || !isViewableDoc(record.mime, record.name)) return false;
+  await docViewer.open(record);
+  return true;
+};
 
 let pocket; // referenced by the hooks below, assigned once constructed
 layer.getPocketDropRect = () => pocket?.getDropRect() ?? null;

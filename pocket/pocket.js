@@ -129,6 +129,32 @@ export async function updateLinkRecord(id, link) {
 }
 
 /**
+ * Marginalia for a document: an array of
+ * { id, page, start, end, text, note } — `start`/`end` are character offsets
+ * into that page's own extracted plain text, which is what lets a highlight
+ * be found again on the next open without depending on DOM structure.
+ * Stored on the pocket record itself, so annotations travel with the file
+ * and survive the canvas item being removed and re-placed.
+ */
+export async function getDocAnnotations(id) {
+  const rec = await getPocketItem(id);
+  return rec?.annotations || [];
+}
+
+export async function setDocAnnotations(id, annotations) {
+  const rec = await getPocketItem(id);
+  if (!rec) return;
+  rec.annotations = annotations;
+  const db = await openDB();
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, "readwrite");
+    tx.objectStore(STORE).put(rec);
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
  * Metadata for every pocket item on a canvas (blobs stripped — cheap to list,
  * even with videos in the pocket; fetch the blob only when actually needed).
  */

@@ -308,6 +308,25 @@ html, body {
   opacity: .4;
 }
 
+/* On a note that came from an uploaded text file: a way back to the whole
+   document (and its margin notes). Only rendered when item.pocketId is set. */
+.text-doc-open {
+  position: absolute;
+  right: 4px; bottom: 4px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--ink-faint, #9a927a);
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s ease;
+}
+.item--text:hover .text-doc-open,
+.item--text.is-selected .text-doc-open { opacity: 1; }
+.text-doc-open:hover { color: var(--ink); background: var(--bg); }
+
 /* Ink drawn onto an item — stretches to fill it. */
 .ink {
   position: absolute;
