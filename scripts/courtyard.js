@@ -6,6 +6,7 @@
 // first-pass placeholder.
 
 import { getCourtyard, saveCourtyard } from "../courtyardcreationlogic.js";
+import { editInline } from "./inlineedit.js";
 import { getCanvas } from "./store.js";
 import { go } from "./router.js";
 import { renderEvents } from "../events/events.js";
@@ -28,8 +29,7 @@ export function renderCourtyard(container, id) {
   title.textContent = ct.name;
   title.title = "Rename courtyard";
   title.onclick = () => {
-    const name = prompt("Rename courtyard", ct.name);
-    if (name && name.trim()) { ct.name = name.trim(); saveCourtyard(ct); title.textContent = ct.name; }
+    editInline(title, (name) => { ct.name = name; saveCourtyard(ct); });
   };
   container.append(title);
 

@@ -53,11 +53,13 @@ function scrollCaretIntoView(container) {
 // older items only have the clipToShape boolean, so read through this —
 // true meant "the photo's own outline", false meant "the whole box".
 const EMBED_SHAPES = [
+  // "from a photo" sits right after "the photo's outline": they're the two
+  // silhouette options, so they belong together, ahead of the geometric ones.
   ["own", "🍃", "the photo's outline"],
+  ["photo", "🖼", "from a photo…"],
   ["circle", "◯", "circle"],
   ["rounded", "▢", "rounded"],
   ["box", "▭", "full box"],
-  ["photo", "🖼", "from a photo…"],
 ];
 function embedClipShape(embed) {
   if (!embed) return "box";

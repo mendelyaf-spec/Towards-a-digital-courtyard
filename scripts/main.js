@@ -16,6 +16,7 @@ import { renderCourtyard } from "./courtyard.js";
 import { migrate, getCanvas, createCanvas, listCanvases, renameCanvas, save, items } from "./store.js";
 import { canUndo, setUndoChangeListener } from "./undo.js";
 import { consumeInvite } from "../courtyardcreationlogic.js";
+import { editInline } from "./inlineedit.js";
 
 migrate(); // bring any old single-canvas data forward
 
@@ -347,15 +348,16 @@ linkBtn.addEventListener("click", () => {
 document.getElementById("resetView").addEventListener("click", () => viewport.reset());
 document.getElementById("canvasBack").addEventListener("click", () => go(""));
 
-document.getElementById("canvasRename").addEventListener("click", () => {
-  if (!currentCanvasId) return;
-  const current = getCanvas(currentCanvasId)?.name || "";
-  const name = prompt("Rename canvas", current);
-  if (name && name.trim() && name.trim() !== current) {
-    renameCanvas(currentCanvasId, name.trim());
-    canvasTitle.textContent = name.trim();
-  }
-});
+// Rename by typing on the title itself. The ✎ starts it, and so does
+// clicking the name — but only while editing, since the ✎ is hidden in
+// view mode and renaming is a change like any other.
+function startCanvasRename() {
+  if (!currentCanvasId || layer.locked) return;
+  editInline(canvasTitle, (name) => renameCanvas(currentCanvasId, name));
+}
+document.getElementById("canvasRename").addEventListener("click", startCanvasRename);
+canvasTitle.addEventListener("click", startCanvasRename);
+canvasTitle.title = "Click to rename";
 
 // ---------- view / edit mode ----------
 // The mosaic is fixed until Edit is pressed: nothing drags, resizes,

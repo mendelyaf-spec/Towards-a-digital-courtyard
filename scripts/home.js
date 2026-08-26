@@ -5,6 +5,7 @@ import {
   getMe, setMe,
 } from "./store.js";
 import { listCourtyards, createInvite } from "../courtyardcreationlogic.js";
+import { editInline } from "./inlineedit.js";
 import { go } from "./router.js";
 
 export function renderHome(container) {
@@ -40,8 +41,10 @@ export function renderHome(container) {
     tools.append(
       iconBtn("✎", "Rename", (e) => {
         e.stopPropagation();
-        const name = prompt("Rename canvas", c.name);
-        if (name && name.trim()) { renameCanvas(c.id, name.trim()); renderHome(container); }
+        // Type on the tile's own name rather than in a dialog. No re-render
+        // afterward — the element already shows the new name, and rebuilding
+        // the grid here would destroy the element mid-commit.
+        editInline(tile.querySelector(".tile__name"), (name) => renameCanvas(c.id, name));
       }),
       iconBtn("🗑", "Delete", (e) => {
         e.stopPropagation();

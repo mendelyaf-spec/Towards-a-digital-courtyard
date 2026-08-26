@@ -3,7 +3,7 @@
 // cached copy as a fallback when you don't. Relative URLs keep it working
 // whether the site is hosted at a domain root or a /repo/ subpath.
 
-const CACHE = "courtyard-v38";
+const CACHE = "courtyard-v39";
 const ASSETS = [
   "./",
   "./index.html",
@@ -21,6 +21,7 @@ const ASSETS = [
   "./scripts/silhouette.js",
   "./scripts/store.js",
   "./scripts/undo.js",
+  "./scripts/inlineedit.js",
   "./scripts/studio.js",
   "./scripts/extract.js",
   "./scripts/router.js",
