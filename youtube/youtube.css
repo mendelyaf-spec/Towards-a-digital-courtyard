@@ -177,7 +177,13 @@
 .yt-note-toast.is-on { opacity: 1; transform: none; }
 .yt-note-add {
   position: absolute;
-  left: 6px; bottom: 6px;
+  /* Top-left, not bottom — the bottom edge is YouTube's own control bar
+     (play/pause, volume, settings), and a button sitting anywhere along it
+     silently eats the click before the video ever sees it. A real bug this
+     fixes: pause stopped working because "+ note here" was sitting right
+     on top of it. Top-left is clear of both that bar and the shrink button
+     (top-right). */
+  left: 6px; top: 6px;
   z-index: 4;
   border: none;
   background: rgba(15, 15, 16, .78);

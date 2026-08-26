@@ -311,7 +311,6 @@ export class ItemLayer {
       const head = document.createElement("div");
       head.className = "text-head";
       head.textContent = item.title || "";
-      head.dataset.placeholder = "title…";
       head.title = "Double-click to rename this note";
 
       const t = document.createElement("div");

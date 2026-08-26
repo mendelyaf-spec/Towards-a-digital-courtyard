@@ -359,11 +359,6 @@ html, body {
   text-overflow: ellipsis;
   cursor: text;
 }
-.text-head:empty::before {
-  content: attr(data-placeholder);
-  opacity: .35;
-  font-weight: 500;
-}
 .text-head[contenteditable="true"] {
   white-space: normal;      /* let a long title be seen while it's edited */
   text-overflow: clip;
