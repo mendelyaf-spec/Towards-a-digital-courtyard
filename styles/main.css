@@ -579,8 +579,11 @@ html, body {
    to the previous result) build a solid ring that follows the alpha —
    there is no "spread" on drop-shadow to do it in one. A photo with no
    transparency is genuinely a rectangle, and correctly rings as one. */
-.item--image.is-selected,
-.item--text.has-shape.is-selected { outline: none; }
+/* .item is in the selector purely for specificity: the generic
+   `.item.is-selected` rectangle outline is two classes and appears later
+   in this file, so a two-class override here would lose on source order. */
+.item.item--image.is-selected,
+.item.item--text.has-shape.is-selected { outline: none; }
 .item--image.is-selected .item--image__halo,
 .item--text.has-shape.is-selected .text-halo {
   filter:
@@ -998,3 +1001,46 @@ html, body {
 .btn--solid { background: var(--accent); color: var(--accent-ink); }
 .btn--solid:hover { filter: brightness(1.05); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ---------- Connections: items joined by a line share one layer ---------- */
+/* The lines live in their own layer, kept as .world's first child so they
+   always paint behind items (select() appends the selected item to world,
+   which would otherwise keep shuffling them in front). They sit in world
+   coordinates, so they pan and zoom with everything else. */
+.conn-layer {
+  position: absolute;
+  left: 0; top: 0;
+  width: 0; height: 0;
+}
+/* The element is a 14px band (a comfortable click target for cutting the
+   line); the visible 2px line is drawn down its middle by ::before. */
+.conn {
+  position: absolute;
+  height: 14px;
+  margin-top: -7px;
+  transform-origin: 0 50%;
+  cursor: pointer;
+}
+.conn::before {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 50%;
+  height: 2px;
+  margin-top: -1px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: .8;
+}
+.conn:hover::before { height: 4px; margin-top: -2px; opacity: 1; }
+/* The rubber band while you're drawing one — dashed, and never a target. */
+.conn--live { pointer-events: none; }
+.conn--live::before {
+  background: repeating-linear-gradient(
+    to right, var(--accent) 0 7px, transparent 7px 13px
+  );
+  opacity: .7;
+}
+/* View mode shows the connections but doesn't let you cut them. */
+#canvasView.is-viewing .conn { pointer-events: none; cursor: default; }
+/* While a connection is armed, the whole canvas reads as "pick the other end". */
+.viewport.is-connecting { cursor: crosshair; }

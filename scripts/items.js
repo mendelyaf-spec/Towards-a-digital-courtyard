@@ -72,6 +72,14 @@ export class ItemLayer {
     this.focusStack = [];
     this.viewStack = [];   // a Viewport snapshot per focusStack entry, so ascending returns you to exactly where you were
     this.ghostOpacity = 0.35; // the layer above, showing through like tracing paper — see setGhostOpacity
+    // Connection lines live in their own layer, kept as world's FIRST child
+    // so they always paint behind items — select() appends the selected
+    // item to world, which would otherwise keep shuffling them in front.
+    this.connLayer = document.createElement("div");
+    this.connLayer.className = "conn-layer";
+    worldEl.prepend(this.connLayer);
+    this.connectFrom = null; // armed by "connect": the next item tapped gets joined to this one
+    this._connLive = null;   // the rubber-band line following the pointer while armed
     this.onFocusChange = null; // hook: (breadcrumb: [{id,label}]) -> void — main.js renders it
     // The mosaic is view-only by default — dragging, resizing, deleting,
     // drawing, typing, and adding new items all require Edit first. Viewing
@@ -96,7 +104,18 @@ export class ItemLayer {
     this._wireBar();
 
     viewport.vp.addEventListener("pointerdown", (e) => {
-      if (e.target === viewport.vp) this.select(null);
+      if (e.target === viewport.vp) {
+        if (this.connectFrom) this.endConnect(); // tapping nowhere cancels "connect"
+        this.select(null);
+      }
+    });
+    // The rubber-band line follows the pointer while a connection is armed.
+    viewport.vp.addEventListener("pointermove", (e) => {
+      if (!this.connectFrom || !this._connLive) return;
+      const from = this._get(this.connectFrom);
+      if (!from) return this.endConnect();
+      const pt = this.vp.screenToWorld(e.clientX, e.clientY);
+      this._layoutConn(this._connLive, from.x + from.w / 2, from.y + from.h / 2, pt.x, pt.y);
     });
 
     // A reliable "exit" that works whether or not the video ever entered
@@ -104,6 +123,7 @@ export class ItemLayer {
     // Ctrl/Cmd+Z undoes the last edit — but not while actually typing in a
     // text note, where it should mean the browser's own native text undo.
     document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && this.connectFrom) this.endConnect();
       if (e.key === "Escape" && this._activeEmbed) this._activeEmbed.stop();
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z" && !e.target?.isContentEditable) {
         e.preventDefault();
@@ -149,6 +169,7 @@ export class ItemLayer {
       this.select(null);
       this.drawMode = false;
       this.closeTimedNotes();
+      this.endConnect();
     }
     this.onLockChange?.(locked);
   }
@@ -181,6 +202,153 @@ export class ItemLayer {
   _children(id) {
     return items.filter((it) => it.parentId === id);
   }
+
+  // ---------- connections: items joined by a line share ONE layer ----------
+  /** Every id reachable from `id` through connection lines, including it. */
+  _component(id) {
+    const seen = new Set([id]);
+    const stack = [id];
+    while (stack.length) {
+      const cur = this._get(stack.pop());
+      for (const nid of cur?.links || []) {
+        if (!seen.has(nid) && this._get(nid)) { seen.add(nid); stack.push(nid); }
+      }
+    }
+    return [...seen];
+  }
+
+  /** The single item that owns a connected group's shared layer. Lowest id
+   *  wins — an arbitrary but STABLE choice, so the same group always
+   *  resolves to the same owner no matter which member you ask from. */
+  _layerOwner(id) {
+    const comp = this._component(id);
+    let owner = comp[0];
+    for (const c of comp) if (c < owner) owner = c;
+    return owner;
+  }
+
+  /** What's on this item's layer — its own, or the one it shares. */
+  _layerChildren(id) {
+    return this._children(this._layerOwner(id));
+  }
+
+  /** Join two items with a line. Their layers MERGE into one: everything
+   *  that lived under either now lives under the group's single owner, so
+   *  descending from either end arrives at the same place. */
+  connect(aId, bId) {
+    if (!aId || !bId || aId === bId) return false;
+    const a = this._get(aId);
+    const b = this._get(bId);
+    if (!a || !b) return false;
+    if ((a.links || []).includes(bId)) return false; // already joined
+    pushUndoSnapshot();
+    a.links = [...(a.links || []), bId];
+    b.links = [...(b.links || []), aId];
+    // Merge: re-parent every member's children onto the new single owner.
+    const comp = this._component(aId);
+    const owner = this._layerOwner(aId);
+    for (const memberId of comp) {
+      if (memberId === owner) continue;
+      for (const child of this._children(memberId)) child.parentId = owner;
+    }
+    save();
+    for (const memberId of comp) {
+      const it = this._get(memberId);
+      if (it) this._updateBadge(it);
+    }
+    this._applyVisibility();
+    return true;
+  }
+
+  /** Cut one line. The shared layer STAYS with the group's owner — the
+   *  item that leaves keeps no copy of it, which is why this asks first. */
+  disconnect(aId, bId) {
+    const a = this._get(aId);
+    const b = this._get(bId);
+    if (!a || !b) return false;
+    pushUndoSnapshot();
+    a.links = (a.links || []).filter((x) => x !== bId);
+    b.links = (b.links || []).filter((x) => x !== aId);
+    if (!a.links.length) delete a.links;
+    if (!b.links.length) delete b.links;
+    save();
+    for (const id of [...this._component(aId), ...this._component(bId)]) {
+      const it = this._get(id);
+      if (it) this._updateBadge(it);
+    }
+    this._applyVisibility();
+    return true;
+  }
+
+  /** Every connection worth drawing right now: both ends present, and both
+   *  actually on the layer you're looking at. Each pair once (a < b). */
+  _visibleConnections() {
+    const out = [];
+    for (const it of items) {
+      if (!this._visible(it)) continue;
+      for (const otherId of it.links || []) {
+        if (it.id >= otherId) continue; // one line per pair
+        const other = this._get(otherId);
+        if (other && this._visible(other)) out.push([it, other]);
+      }
+    }
+    return out;
+  }
+
+  /** Repaint the lines. Rebuilt wholesale rather than diffed — there are a
+   *  handful of these, and rebuilding keeps them honest after any move,
+   *  resize, delete, or layer change without tracking which changed. */
+  _renderConnections() {
+    if (!this.connLayer) return;
+    this.connLayer.innerHTML = "";
+    for (const [a, b] of this._visibleConnections()) {
+      const el = document.createElement("div");
+      el.className = "conn";
+      this._layoutConn(el, a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2);
+      el.title = "Connected — they share one layer. Click to cut this line.";
+      el.addEventListener("pointerdown", (e) => e.stopPropagation());
+      el.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (this.locked) return; // view mode: lines are shown, not edited
+        if (confirm("Cut this connection? Their shared layer stays with the first of them.")) {
+          this.disconnect(a.id, b.id);
+        }
+      });
+      this.connLayer.appendChild(el);
+    }
+    if (this._connLive) this.connLayer.appendChild(this._connLive);
+  }
+
+  _layoutConn(el, ax, ay, bx, by) {
+    const len = Math.hypot(bx - ax, by - ay);
+    el.style.left = ax + "px";
+    el.style.top = ay + "px";
+    el.style.width = len + "px";
+    el.style.transform = `rotate(${Math.atan2(by - ay, bx - ax)}rad)`;
+  }
+
+  /** Arm "draw a line from here" — the next item you tap gets joined. */
+  startConnect(fromId) {
+    if (this.locked || !this._get(fromId)) return;
+    this.connectFrom = fromId;
+    this._connLive = document.createElement("div");
+    this._connLive.className = "conn conn--live";
+    this._renderConnections();
+    this._reflectConnectState();
+  }
+
+  endConnect() {
+    this.connectFrom = null;
+    this._connLive = null;
+    this._renderConnections();
+    this._reflectConnectState();
+  }
+
+  _reflectConnectState() {
+    const btn = this.bar?.querySelector('[data-act="connect"]');
+    if (btn) btn.classList.toggle("is-on", !!this.connectFrom);
+    this.vp.vp.classList.toggle("is-connecting", !!this.connectFrom);
+  }
   _descendants(id) {
     const out = [];
     const walk = (pid) => {
@@ -208,7 +376,7 @@ export class ItemLayer {
 
   // Public: does this item have attached notes?
   hasChildren(id) {
-    return this._children(id).length > 0;
+    return this._layerChildren(id).length > 0;
   }
   // Public: is this group "open" — expanded and itself visible? A grouped
   // background binds to / shows with an open group.
@@ -992,13 +1160,20 @@ export class ItemLayer {
   /** The halo (a warm glow) plus a small count is how an item shows it has
    *  a layer beneath it — double-click it to go there. */
   _updateBadge(item) {
-    const el = this.nodes.get(item.id);
-    if (!el) return;
-    const badge = el.querySelector(".badge");
-    const n = this._children(item.id).length;
-    badge.style.display = n ? "" : "none";
-    badge.textContent = String(n);
-    el.classList.toggle("has-layer", n > 0);
+    if (!item) return;
+    const n = this._layerChildren(item.id).length;
+    // Fans out across the whole connected group: every member opens the
+    // SAME layer, so they gain and lose the halo together. Updating only
+    // the item that happened to gain a child would leave its partners
+    // looking empty while opening into a full layer.
+    for (const id of this._component(item.id)) {
+      const el = this.nodes.get(id);
+      const badge = el?.querySelector(".badge");
+      if (!badge) continue;
+      badge.style.display = n ? "" : "none";
+      badge.textContent = String(n);
+      el.classList.toggle("has-layer", n > 0);
+    }
   }
 
   // ---------- visibility (collapse/expand) ----------
@@ -1030,6 +1205,7 @@ export class ItemLayer {
     if (this.selected && !this._visible(this._get(this.selected))) {
       this.select(null);
     }
+    this._renderConnections();
     this.onVisibility?.(); // grouped backgrounds follow expand/collapse
   }
 
@@ -1043,10 +1219,20 @@ export class ItemLayer {
 
   // ---------- layers: descending into (and back out of) an item ----------
   /** A short, human label for the breadcrumb trail. */
-  _layerLabel(item) {
+  _oneLabel(item) {
     if (!item) return "mosaic";
     if (item.type === "text") return deriveTitle(item.text) || "note";
     return item.name || item.title || item.type;
+  }
+
+  /** A shared layer is named after everything that opens into it, so the
+   *  breadcrumb says whose layer you're standing in. */
+  _layerLabel(item) {
+    if (!item) return "mosaic";
+    const comp = this._component(item.id).map((id) => this._get(id)).filter(Boolean);
+    if (comp.length <= 1) return this._oneLabel(item);
+    const names = comp.slice(0, 2).map((it) => this._oneLabel(it));
+    return names.join(" + ") + (comp.length > 2 ? ` +${comp.length - 2}` : "");
   }
 
   _notifyFocus() {
@@ -1078,9 +1264,11 @@ export class ItemLayer {
     this.closeTimedNotes();
     this.select(null);
     this.viewStack.push(this.vp.snapshot());
-    this.focusStack.push(item.id);
+    // Descending from EITHER end of a connection lands on the same layer.
+    const owner = this._layerOwner(item.id);
+    this.focusStack.push(owner);
     this._applyVisibility();
-    const bounds = this._boundsOf(this._children(item.id)) || { x: item.x, y: item.y, w: item.w, h: item.h };
+    const bounds = this._boundsOf(this._children(owner)) || { x: item.x, y: item.y, w: item.w, h: item.h };
     this.vp.travelTo(bounds);
     this.positionBar();
     this._notifyFocus();
@@ -1191,6 +1379,7 @@ export class ItemLayer {
     const showClip = !!item?.embed && item?.type === "image";
     clipBtn.style.display = showClip ? "" : "none";
     if (showClip) clipBtn.classList.toggle("is-on", !!item.embed.clipToShape);
+    this._reflectConnectState();
     this.positionBar();
   }
   _hideBar() {
@@ -1249,6 +1438,10 @@ export class ItemLayer {
     this.bar.querySelector('[data-act="draw"]').addEventListener("click", () => {
       this.drawMode = !this.drawMode;
       this._reflectDrawState();
+    });
+    this.bar.querySelector('[data-act="connect"]').addEventListener("click", () => {
+      if (this.connectFrom) return this.endConnect(); // pressing it again disarms
+      if (this.selected) this.startConnect(this.selected);
     });
     this.bar.querySelector('[data-act="enter-layer"]').addEventListener("click", () => {
       const item = this._get(this.selected);
@@ -1450,6 +1643,7 @@ export class ItemLayer {
     clone.x = item.x + 24;
     clone.y = item.y + 24;
     delete clone.expanded;
+    delete clone.links; // a copy starts unconnected, same as it starts childless
     const added = addItem(clone);
     this._render(added);
     this._applyVisibility();
@@ -1568,6 +1762,17 @@ export class ItemLayer {
     // item.embed, plays the video — but a drag still moves the item first,
     // since a tap is only decided by whether the pointer actually moved.
     bodyTarget.addEventListener("pointerdown", (e) => {
+      // "Connect" is armed: this tap is the far end of the line, not a
+      // select or a drag. Checked first so nothing else claims it.
+      if (this.connectFrom && this.connectFrom !== item.id) {
+        e.stopPropagation();
+        e.preventDefault();
+        const from = this.connectFrom;
+        this.endConnect();
+        this.connect(from, item.id);
+        this.select(item.id);
+        return;
+      }
       if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen || e.target === linkEdit || e.target.closest?.(".yt-card__edit, .embed-badge")) return;
       if (e.target.isContentEditable) return; // editing text
       if (embedOverlay?.classList.contains("is-active") || e.target.closest?.(".yt-card__iframe, .embed-overlay__iframe, .yt-card__shrink, .embed-overlay__close")) return; // let the live embed / its controls handle their own input
@@ -1640,6 +1845,7 @@ export class ItemLayer {
           this._layout(c.node, c.k);
         }
         this.groupBg?.groupDragTo(dx, dy);
+        this._renderConnections(); // lines follow their items while dragging
         this.positionBar();
         if (pocketEligible && this.getPocketDropRect) {
           const r = this.getPocketDropRect();
@@ -1693,7 +1899,7 @@ export class ItemLayer {
     // cleanly means two different things depending on whether this item
     // has a layer beneath it, never both at once.
     el.addEventListener("dblclick", (e) => {
-      if (this._children(item.id).length) {
+      if (this._layerChildren(item.id).length) {
         e.stopPropagation();
         this.descend(item);
         return;
@@ -1729,6 +1935,7 @@ export class ItemLayer {
           item.h = Math.max(MIN_SIZE, Math.round(start.h + dy));
         }
         this._layout(el, item);
+        this._renderConnections(); // a resize moves the item's centre, so its lines move too
         this.positionBar();
       };
       const onUp = (ev) => {
@@ -1825,6 +2032,25 @@ export class ItemLayer {
 
   remove(id) {
     pushUndoSnapshot();
+    if (this.connectFrom === id) this.endConnect();
+
+    // Cut this item out of any connected group FIRST. Two things depend on
+    // it: the survivors' lines must not point at a ghost, and a shared
+    // layer must not be deleted along with whichever member happened to
+    // own it — the group's other members are still standing there with a
+    // halo, so the layer is handed to the next owner instead.
+    const item = this._get(id);
+    const peers = (item?.links || []).map((p) => this._get(p)).filter(Boolean);
+    for (const peer of peers) {
+      peer.links = (peer.links || []).filter((x) => x !== id);
+      if (!peer.links.length) delete peer.links;
+    }
+    if (item) delete item.links;
+    if (peers.length) {
+      const newOwner = this._layerOwner(peers[0].id);
+      for (const child of this._children(id)) child.parentId = newOwner;
+    }
+
     const removed = [id, ...this._descendants(id).map((d) => d.id)];
     for (const d of this._descendants(id)) {
       this.nodes.get(d.id)?.remove();
@@ -1837,6 +2063,15 @@ export class ItemLayer {
     removeItem(id);
     if (this.selected === id) this.select(null);
     if (parentId) this._updateBadge(this._get(parentId));
+    for (const peer of peers) this._updateBadge(peer); // they may have just gained/kept the layer
+    // Deleting the item whose layer you're standing in (reachable via a
+    // peer's shared layer) would otherwise strand focusId on nothing.
+    while (this.focusStack.length && !this._get(this.focusId)) {
+      this.focusStack.pop();
+      this.viewStack.pop();
+    }
+    this._applyVisibility();
+    this._notifyFocus();
     this.onRemove?.(removed); // drop any backgrounds bound to this subtree
   }
 }
