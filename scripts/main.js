@@ -369,18 +369,20 @@ function applyEditMode(editing) {
 editToggle.addEventListener("click", () => applyEditMode(layer.locked));
 applyEditMode(false); // every canvas opens fixed
 
-// ---------- layers: the breadcrumb trail ----------
+// ---------- layers: the breadcrumb trail, and the ghost-opacity slider ----------
 const layerCrumb = document.getElementById("layerCrumb");
+const layerCrumbSteps = document.getElementById("layerCrumbSteps");
+const layerGhostRange = document.getElementById("layerGhostRange");
 layer.onFocusChange = (crumbs) => {
   layerCrumb.hidden = crumbs.length === 0;
-  if (!crumbs.length) { layerCrumb.innerHTML = ""; return; }
+  if (!crumbs.length) { layerCrumbSteps.innerHTML = ""; return; }
   const root = document.createElement("button");
   root.type = "button";
   root.className = "layer-crumb__step";
   root.textContent = "⌂ mosaic";
   root.title = "Back to the top-level mosaic";
   root.addEventListener("click", () => layer.ascend(0));
-  layerCrumb.replaceChildren(root);
+  layerCrumbSteps.replaceChildren(root);
   crumbs.forEach(({ label }, i) => {
     const sep = document.createElement("span");
     sep.className = "layer-crumb__sep";
@@ -396,9 +398,17 @@ layer.onFocusChange = (crumbs) => {
       step.title = `Back to ${label}`;
       step.addEventListener("click", () => layer.ascend(i + 1));
     }
-    layerCrumb.append(sep, step);
+    layerCrumbSteps.append(sep, step);
   });
 };
+// How much of the layer above still shows through while you're descended —
+// the same idea as fading a buried link's preview to see what's under IT,
+// held between one layer and the next instead of between a link and its
+// host. Live (no re-render): setGhostOpacity just updates a CSS variable.
+layerGhostRange.value = String(Math.round(layer.ghostOpacity * 100));
+layerGhostRange.addEventListener("input", () => {
+  layer.setGhostOpacity(Number(layerGhostRange.value) / 100);
+});
 
 // ---------- undo ----------
 const undoBtn = document.getElementById("undoBtn");

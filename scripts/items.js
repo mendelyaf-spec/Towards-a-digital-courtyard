@@ -71,6 +71,7 @@ export class ItemLayer {
     // undo history, same as selecting or panning.
     this.focusStack = [];
     this.viewStack = [];   // a Viewport snapshot per focusStack entry, so ascending returns you to exactly where you were
+    this.ghostOpacity = 0.35; // the layer above, showing through like tracing paper — see setGhostOpacity
     this.onFocusChange = null; // hook: (breadcrumb: [{id,label}]) -> void — main.js renders it
     // The mosaic is view-only by default — dragging, resizing, deleting,
     // drawing, typing, and adding new items all require Edit first. Viewing
@@ -247,7 +248,7 @@ export class ItemLayer {
     }
     // Adding something while you're inside a layer puts it on THAT layer,
     // not back at the top level — you're standing there, so that's where
-    // it lands. An explicit parentId (attachNote, a duplicate, anything
+    // it lands. An explicit parentId (a duplicate, anything
     // that names its own parent) always wins over this default.
     if (parentId === undefined) parentId = this.focusId || undefined;
     let x, y;
@@ -288,6 +289,12 @@ export class ItemLayer {
     });
     const el = this._render(item);
     this._applyVisibility();
+    // A new item's PARENT gains its halo the moment it gets its first
+    // child — no matter how that child was created (typed, uploaded, a
+    // link, drawn) or whether the parent is even on screen right now
+    // (_updateBadge no-ops harmlessly if it isn't rendered).
+    const parent = item.parentId && this._get(item.parentId);
+    if (parent) this._updateBadge(parent);
     this.select(item.id);
     if (type === "text") this._editText(item, el);
     return item;
@@ -982,16 +989,43 @@ export class ItemLayer {
   }
 
   // ---------- visibility (collapse/expand) ----------
+  /** The layer directly above the one you're on — undefined at the top
+   *  level, where there's nothing to show through. This is the "layer 1"
+   *  in "let me still see layer 1 while I'm on layer 2": always exactly
+   *  one step up, not every ancestor at once. */
+  _parentLayerId() {
+    if (!this.focusStack.length) return undefined;
+    const focusItem = this._get(this.focusId);
+    return focusItem ? focusItem.parentId || null : undefined;
+  }
+
   _applyVisibility() {
+    const parentLayer = this._parentLayerId();
     for (const it of items) {
       const el = this.nodes.get(it.id);
       if (!el) continue;
-      el.classList.toggle("is-hidden", !this._visible(it));
+      const current = this._visible(it);
+      // The layer you just came from shows through faintly — like tracing
+      // paper over what's beneath it — rather than vanishing the instant
+      // you descend. Purely visual: pointer-events stay off it below, so
+      // it can't be dragged, selected, or mistaken for something on the
+      // layer you're actually working on.
+      const ghost = !current && parentLayer !== undefined && (it.parentId || null) === parentLayer;
+      el.classList.toggle("is-hidden", !current && !ghost);
+      el.classList.toggle("is-ghost", ghost);
     }
     if (this.selected && !this._visible(this._get(this.selected))) {
       this.select(null);
     }
     this.onVisibility?.(); // grouped backgrounds follow expand/collapse
+  }
+
+  /** How visible the layer above shows through while you're descended —
+   *  0 (gone) to 1 (as solid as the layer you're actually on). A live CSS
+   *  variable rather than a re-render, so dragging the slider is instant. */
+  setGhostOpacity(v) {
+    this.ghostOpacity = Math.min(1, Math.max(0, v));
+    this.world.style.setProperty("--ghost-opacity", String(this.ghostOpacity));
   }
 
   // ---------- layers: descending into (and back out of) an item ----------
@@ -1021,9 +1055,10 @@ export class ItemLayer {
 
   /** Travel into `item`'s layer. Callers decide WHEN that's meaningful —
    *  the double-click handler only offers it once the item already has a
-   *  halo (real content below); attachNote() calls this to seed a still-
-   *  empty layer and arrive in the same motion, so the note it creates
-   *  next is already visible. Navigation, not an edit: no undo snapshot. */
+   *  halo (real content below); "↳ enter layer" in the item bar calls this
+   *  unconditionally, since going into a still-empty layer to start
+   *  building it is exactly the point of that button. Navigation, not an
+   *  edit: no undo snapshot. */
   descend(item) {
     if (!item) return false;
     this._activeEmbed?.stop(); // don't leave a video from this layer still playing behind you
@@ -1202,9 +1237,10 @@ export class ItemLayer {
       this.drawMode = !this.drawMode;
       this._reflectDrawState();
     });
-    this.bar.querySelector('[data-act="note"]').addEventListener("click", () =>
-      this.attachNote()
-    );
+    this.bar.querySelector('[data-act="enter-layer"]').addEventListener("click", () => {
+      const item = this._get(this.selected);
+      if (item) this.descend(item); // an empty item just gets an empty layer — the toolbar does the rest
+    });
     this.bar.querySelector('[data-act="duplicate"]').addEventListener("click", () => {
       const item = this._get(this.selected);
       if (item) this.duplicate(item);
@@ -1380,22 +1416,6 @@ export class ItemLayer {
       el.style.maskRepeat = el.style.webkitMaskRepeat = "no-repeat";
       el.style.maskPosition = el.style.webkitMaskPosition = "center";
     }
-  }
-
-  attachNote() {
-    const parent = this._get(this.selected);
-    if (!parent) return;
-    // Travel FIRST, while the layer's still empty — so the note this
-    // creates next lands somewhere already visible and can be selected
-    // and opened for editing immediately, same as any other fresh note.
-    if (this.focusId !== parent.id) this.descend(parent);
-    const note = this.add("text", {
-      parentId: parent.id,
-      text: "",
-      near: { x: parent.x + parent.w / 2 - 70, y: parent.y },
-    });
-    this._updateBadge(parent);
-    return note;
   }
 
   // Clone an item — everything about it (color, opacity, strokes, location,

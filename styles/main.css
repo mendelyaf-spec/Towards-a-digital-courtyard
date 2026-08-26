@@ -122,8 +122,9 @@ html, body {
 }
 
 /* ---------- Layer breadcrumb ---------- */
-/* Where you are, and the way back up. Hidden entirely at the top-level
-   mosaic — it only exists once there's somewhere it could take you. */
+/* Where you are, the way back up, and (the ghost slider) how much of the
+   layer above still shows through. Hidden entirely at the top-level
+   mosaic — none of it exists until there's somewhere it could take you. */
 .layer-crumb {
   position: fixed;
   top: 16px; left: 50%;
@@ -131,9 +132,7 @@ html, body {
   z-index: 22;
   display: flex;
   align-items: center;
-  gap: 2px;
   max-width: min(86vw, 640px);
-  overflow-x: auto;
   padding: 6px 8px;
   background: var(--panel);
   border: 1px solid var(--line);
@@ -141,6 +140,33 @@ html, body {
   box-shadow: var(--shadow);
   font-size: 13px;
   color: var(--ink);
+}
+/* The step list scrolls on a long trail; the ghost slider (below) stays
+   fixed at the end regardless, rather than scrolling out of reach. */
+.layer-crumb__steps {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  min-width: 0;
+}
+.layer-crumb__ghostdiv {
+  flex: none;
+  width: 1px; height: 20px;
+  margin: 0 6px;
+  background: var(--line);
+}
+.layer-crumb__ghost {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  cursor: default;
+}
+.layer-crumb__ghost input[type="range"] {
+  width: 64px;
+  accent-color: var(--accent);
 }
 .layer-crumb__step {
   flex: none;
@@ -316,6 +342,7 @@ html, body {
   width: 0; height: 0;
   transform-origin: 0 0;
   --inv-scale: 1;                /* updated on zoom; keeps handles crisp */
+  --ghost-opacity: 0.35;         /* how much of the layer above shows through (items.js setGhostOpacity) */
 }
 
 /* ---------- Items ---------- */
@@ -485,6 +512,17 @@ html, body {
   transform: scale(.85);
   visibility: hidden;
   pointer-events: none;
+}
+/* The layer directly above the one you're on, showing through like tracing
+   paper — set with the slider in the breadcrumb bar. Purely visual: not
+   draggable, not selectable, always behind whatever's actually on the
+   layer you're working on (the !important beats type-specific z-index
+   rules like .item--text's, which otherwise has no reason to lose to a
+   ghost from a totally different item type). */
+.item.is-ghost {
+  opacity: var(--ghost-opacity) !important;
+  pointer-events: none !important;
+  z-index: 0 !important;
 }
 
 /* Drawing mode shows a crosshair over the active item. */
