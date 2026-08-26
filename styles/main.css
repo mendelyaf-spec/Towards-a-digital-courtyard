@@ -1044,3 +1044,36 @@ html, body {
 #canvasView.is-viewing .conn { pointer-events: none; cursor: default; }
 /* While a connection is armed, the whole canvas reads as "pick the other end". */
 .viewport.is-connecting { cursor: crosshair; }
+
+/* ---------- Shape picker for a buried link's preview ---------- */
+.embed-shape-pop {
+  position: fixed;
+  z-index: 50;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+.embed-shape-pop__opt {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.embed-shape-pop__opt:hover { background: rgba(176, 125, 75, .12); }
+.embed-shape-pop__opt.is-on { background: var(--accent); color: var(--accent-ink); }
+.embed-shape-pop__glyph { font-size: 15px; line-height: 1; width: 18px; text-align: center; }
