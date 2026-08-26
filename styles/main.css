@@ -550,28 +550,57 @@ html, body {
    applied here it would glow as a rectangle around the true shape. filter:
    drop-shadow doesn't have that limitation: it follows the alpha of
    whatever's actually painted, which is already the real silhouette by the
-   time it reaches this outer element — so it hugs the outline instead of
+   time it reaches the halo layer — so it hugs the outline instead of
    boxing it. (Confirmed empirically: drop-shadow escapes an element's OWN
    overflow:hidden, but is clipped away entirely if clip-path sits on the
-   very same element as the filter — which is exactly why the clip-path
-   lives one level in, not here.) These two override the plain box-shadow
-   above for exactly the two silhouetted cases; every other item type
-   (rect, circle, a plain note, youtube, file, link) is already an exact
-   rectangle or circle that box-shadow hugs correctly on its own.  */
+   very same element — which is exactly why the clip-path lives one level
+   in, and the filter one level out.) Every other item type (rect, circle,
+   a plain note, youtube, file, link) is already an exact rectangle or
+   circle that box-shadow hugs correctly on its own. */
 .item--image.has-layer,
-.item--text.has-shape.has-layer {
-  box-shadow: none;
+.item--text.has-shape.has-layer { box-shadow: none; }
+.item--image.has-layer .item--image__halo,
+.item--text.has-shape.has-layer .text-halo {
   filter:
     drop-shadow(0 1px 1px rgba(60, 50, 35, .16))
     drop-shadow(0 6px 12px rgba(176, 125, 75, .55))
     drop-shadow(0 10px 20px rgba(60, 50, 35, .3));
 }
-.item--image.has-layer:hover,
-.item--text.has-shape.has-layer:hover {
+.item--image.has-layer:hover .item--image__halo,
+.item--text.has-shape.has-layer:hover .text-halo {
   filter:
     drop-shadow(0 1px 1px rgba(60, 50, 35, .16))
     drop-shadow(0 8px 16px rgba(176, 125, 75, .7))
     drop-shadow(0 14px 26px rgba(60, 50, 35, .36));
+}
+
+/* Selecting a silhouette rings its actual outline, not the box it happens
+   to occupy. Four hard 1.5px drop-shadows (one per direction, each applied
+   to the previous result) build a solid ring that follows the alpha —
+   there is no "spread" on drop-shadow to do it in one. A photo with no
+   transparency is genuinely a rectangle, and correctly rings as one. */
+.item--image.is-selected,
+.item--text.has-shape.is-selected { outline: none; }
+.item--image.is-selected .item--image__halo,
+.item--text.has-shape.is-selected .text-halo {
+  filter:
+    drop-shadow(1.5px 0 0 var(--select))
+    drop-shadow(-1.5px 0 0 var(--select))
+    drop-shadow(0 1.5px 0 var(--select))
+    drop-shadow(0 -1.5px 0 var(--select));
+}
+/* Selected AND carrying a layer: the ring first, then the glow beneath it,
+   so both read at once. Three classes, so it beats each single-state rule
+   above regardless of source order. */
+.item--image.is-selected.has-layer .item--image__halo,
+.item--text.has-shape.is-selected.has-layer .text-halo {
+  filter:
+    drop-shadow(1.5px 0 0 var(--select))
+    drop-shadow(-1.5px 0 0 var(--select))
+    drop-shadow(0 1.5px 0 var(--select))
+    drop-shadow(0 -1.5px 0 var(--select))
+    drop-shadow(0 6px 12px rgba(176, 125, 75, .55))
+    drop-shadow(0 10px 20px rgba(60, 50, 35, .3));
 }
 /* A count of what's on that layer — small, so the halo stays the signal. */
 .badge {
@@ -588,6 +617,18 @@ html, body {
   white-space: nowrap;
   box-shadow: 0 2px 5px rgba(0,0,0,.2);
 }
+/* Filter-only layers: they hold just the picture, so a shape-hugging
+   drop-shadow (the layer halo, the selection ring) never also outlines the
+   delete button and resize handle, which live outside them as children of
+   the item. Separate from the clipping element on purpose — a filter is
+   clipped away entirely when clip-path sits on the same element. */
+.item--image__halo,
+.text-halo {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
 /* Clips the photo to the item's box — kept off .item--image itself, same
    reason as .yt-card in youtube.css: the delete button, resize handle, and
    note badge poke outside the box by design (negative offsets), and

@@ -278,7 +278,8 @@ export class Studio {
       // A stalled network fetch (the model is a one-time ~16MB download)
       // has no natural failure — race it so the UI always resolves to a
       // real state: refined, or honestly unavailable.
-      const timeout = new Promise((res) => setTimeout(() => res(null), this._aiTimeoutMs));
+      let timer = null;
+      const timeout = new Promise((res) => { timer = setTimeout(() => res(null), this._aiTimeoutMs); });
       const run = async (canvas) => Promise.race([subjectAlpha(canvas), timeout]);
       try {
         if (!path) {
@@ -314,6 +315,10 @@ export class Studio {
       } catch (err) {
         console.warn("Smart cutout unavailable for this photo.", err);
       }
+      // Always clear it: a still-armed timer can outlive this run and fire
+      // against a LATER duplicate run of the same key, briefly flashing
+      // "unavailable" over a perfectly good result.
+      clearTimeout(timer);
       if (this._ai.pending === key) this._ai.pending = null;
       if (this.source !== source || this._aiKey() !== key) return; // stale — a newer state owns the preview now
       if (!alpha) {
@@ -376,6 +381,11 @@ export class Studio {
               : "Finding the subject… ✨";
     } else if (tracing) {
       hint = "Circle the thing you want — roughly is fine, the loop just says which one, not where to cut.";
+    } else if (aiState === "unavailable") {
+      // Checked BEFORE the literal-minimum branch: with no model there is
+      // no finer cut to promise, so "drag right to cut its background
+      // away" would be inviting something that cannot happen.
+      hint = "Smart cutout isn't available right now — keeping everything inside your loop as is.";
     } else if (literalKeepAll) {
       // The slider is at its literal minimum — everything circled is kept,
       // exactly as drawn. (This used to fall through to the "empty" hint
@@ -385,9 +395,11 @@ export class Studio {
     } else if (aiState === "active") {
       hint = "Got it — that's the thing you circled, cut out whole. Drag the slider to trim its edge.";
     } else if (aiState === "empty") {
-      hint = "Nothing left at this setting — drag the slider back down toward the left.";
-    } else if (aiState === "unavailable") {
-      hint = "Smart cutout isn't available right now — keeping everything inside your loop as is.";
+      // The mask landed but nothing survives at THIS threshold, so the
+      // preview fell back to the plain loop crop. Say what's actually on
+      // screen — the old wording ("nothing left") flatly contradicted a
+      // preview showing everything inside the loop.
+      hint = "The fine cut finds nothing at this setting — showing everything inside your loop instead. Drag the slider left to bring the cut back.";
     } else {
       hint = "Isolating the thing you circled… ✨ (a moment — then only it survives, not the background inside your loop)";
     }

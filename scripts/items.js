@@ -309,13 +309,23 @@ export class ItemLayer {
 
     let imageClip = null;
     if (item.type === "image") {
+      // __halo wraps __clip for one reason: CSS filter applies to an
+      // element's WHOLE subtree, so a shape-hugging drop-shadow set on the
+      // item itself would also outline the delete button and resize handle
+      // (its own children). Putting the filter on a layer that contains
+      // ONLY the picture keeps those controls clean — and it has to be a
+      // separate element from __clip, since a filter is clipped away
+      // entirely when clip-path sits on the same element.
+      const halo = document.createElement("div");
+      halo.className = "item--image__halo";
       const clip = document.createElement("div");
       clip.className = "item--image__clip";
       const img = document.createElement("img");
       img.src = item.src;
       img.alt = "";
       clip.appendChild(img);
-      el.appendChild(clip);
+      halo.appendChild(clip);
+      el.appendChild(halo);
       this._styleImageContent(el, item);
       this._applyShapeClip(el, item);
       imageClip = clip;
@@ -328,6 +338,8 @@ export class ItemLayer {
       // clipping, kept off the item itself since that would also clip the
       // delete button, resize handle and note badge, which sit outside the
       // box by design (same reasoning as .item--image__clip).
+      const halo = document.createElement("div");
+      halo.className = "text-halo"; // see .item--image__halo — filter layer, controls stay outside it
       const card = document.createElement("div");
       card.className = "text-card";
       textCard = card;
@@ -356,7 +368,8 @@ export class ItemLayer {
       t.className = "text-body";
       t.textContent = item.text || "";
       card.append(t);
-      el.appendChild(card);
+      halo.appendChild(card);
+      el.appendChild(halo);
       this._applyTextStyle(el, item);
       // Every note gets a way to open and READ it — the words on the canvas
       // may be truncated, or squeezed inside a shape, or both. A note that
@@ -1255,6 +1268,13 @@ export class ItemLayer {
         item.embed || null,
         (embed) => {
           pushUndoSnapshot();
+          // A photo that's been cut to a shape should wear its link's
+          // preview in THAT shape, not as a rectangle sitting over the
+          // object — so clip-to-shape starts on for a photo (and only a
+          // photo: nothing else has an irregular outline to clip to).
+          // Only for a NEW link; editing an existing one keeps whatever
+          // you'd already chosen. Still toggleable in the item bar.
+          if (!item.embed && item.type === "image" && item.src) embed.clipToShape = true;
           item.embed = embed;
           save();
           this._reRender(item);
