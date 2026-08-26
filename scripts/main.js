@@ -120,6 +120,12 @@ noteShapeUpload.addEventListener("change", (e) => useAsNoteShape(e.target.files?
 // read it" the in-app browser gives a link — while it stays whatever shape
 // and opacity you gave it on the canvas.
 layer.onReadNote = (item) => {
+  // In view mode the reader is exactly that — a reader. Editing a note's
+  // words through it is an edit-mode ability like any other.
+  if (layer.locked) {
+    docViewer.openNote(item, null);
+    return;
+  }
   docViewer.openNote(item, (text) => {
     item.text = text;
     save();
@@ -332,6 +338,35 @@ document.getElementById("canvasRename").addEventListener("click", () => {
   }
 });
 
+// ---------- view / edit mode ----------
+// The mosaic is fixed until Edit is pressed: nothing drags, resizes,
+// deletes, or retypes, and the add-toolbar stays out of the way. Viewing
+// stays fully alive — pan, zoom, play a video, open a link, read a note.
+// The button flips to "done" while editing, and the canvas wears a subtle
+// tint + frame so you always know which mode you're in at a glance.
+const editToggle = document.getElementById("editToggle");
+
+function applyEditMode(editing) {
+  layer.setLocked(!editing);
+  bg.locked = !editing;
+  if (!editing && bg.mode) {
+    // Leaving edit while background mode was on: turn it off, or the next
+    // edit session would silently start in a mode you chose last time.
+    bg.toggleMode();
+    bgToggle.classList.remove("is-on");
+    bgToggle.setAttribute("aria-pressed", "false");
+    bg.select(null);
+  }
+  editToggle.textContent = editing ? "✓ done" : "✎ edit";
+  editToggle.title = editing ? "Finish editing — fix the mosaic" : "Edit this canvas";
+  editToggle.classList.toggle("is-editing", editing);
+  editToggle.setAttribute("aria-pressed", String(editing));
+  canvasView.classList.toggle("is-viewing", !editing);
+}
+
+editToggle.addEventListener("click", () => applyEditMode(layer.locked));
+applyEditMode(false); // every canvas opens fixed
+
 // ---------- undo ----------
 const undoBtn = document.getElementById("undoBtn");
 const refreshUndoBtn = () => { undoBtn.disabled = !canUndo(); };
@@ -373,6 +408,7 @@ function showCanvas(id) {
   showView("canvas");
   currentCanvasId = id;
   canvasTitle.textContent = getCanvas(id).name;
+  applyEditMode(false); // a canvas always opens fixed — edit is a choice you make each visit
   layer.loadCanvas(id);
   bg.loadCanvas(id);
   pocket.loadCanvas(id);

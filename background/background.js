@@ -21,6 +21,7 @@ export class BackgroundLayer {
     this.vp = viewport;
     this.worldEl = worldEl;
     this.mode = false;        // when true, shape picks become backgrounds
+    this.locked = true;       // view mode: backgrounds are fixed too (set via main.js's edit toggle)
     this.selected = null;
     this.nodes = new Map();
     this.onSelect = null;     // hook so the item layer can deselect
@@ -382,6 +383,7 @@ export class BackgroundLayer {
   _wire(el, item, { handle, rotate, del }) {
     // Move — drag the body. Rotation doesn't affect translation.
     el.addEventListener("pointerdown", (e) => {
+      if (this.locked) return; // view mode: fall through so the canvas pans from here too
       if (e.target === handle || e.target === rotate || e.target === del) return;
       e.stopPropagation();
       this.select(item.id);

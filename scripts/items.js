@@ -63,6 +63,12 @@ export class ItemLayer {
     this.selected = null;
     this.drawMode = false;
     this.color = "#b04b4b";
+    // The mosaic is view-only by default — dragging, resizing, deleting,
+    // drawing, typing, and adding new items all require Edit first. Viewing
+    // stays fully alive either way: pan/zoom, tapping a video to play it,
+    // opening a link, reading a note.
+    this.locked = true;
+    this.onLockChange = null; // hook: (locked) -> void — main.js hides the add-toolbar and tints the canvas
     this.onSelect = null;     // hook: notified with the newly selected id (or null)
     this.groupBg = null;      // background layer, so grouped backgrounds travel with groups
     this.onVisibility = null; // hook: fired when expand/collapse changes what's visible
@@ -116,8 +122,22 @@ export class ItemLayer {
     this._applyVisibility();
   }
 
+  // ---------- view / edit mode ----------
+  /** Lock (view) or unlock (edit) the whole mosaic. Locking also clears any
+   *  selection and editing state, so nothing stays half-open. */
+  setLocked(locked) {
+    this.locked = locked;
+    if (locked) {
+      this.select(null);
+      this.drawMode = false;
+      this.closeTimedNotes();
+    }
+    this.onLockChange?.(locked);
+  }
+
   // ---------- undo ----------
   undo() {
+    if (this.locked) return; // view mode: the board doesn't change, so neither does history
     if (!canUndo()) return;
     this._activeEmbed?.stop();
     this.closeTimedNotes();
@@ -955,6 +975,7 @@ export class ItemLayer {
 
   // ---------- selection + contextual bar ----------
   select(id) {
+    if (this.locked) id = null; // view mode has no selection — only deselection
     if (id === this.selected) return; // re-affirming keeps draw mode intact
     if (this.selected) this.nodes.get(this.selected)?.classList.remove("is-selected");
     this.drawMode = false; // only reset when switching to a different item
@@ -1435,9 +1456,36 @@ export class ItemLayer {
       if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen || e.target === linkEdit || e.target.closest?.(".yt-card__edit, .embed-badge")) return;
       if (e.target.isContentEditable) return; // editing text
       if (embedOverlay?.classList.contains("is-active") || e.target.closest?.(".yt-card__iframe, .embed-overlay__iframe, .yt-card__shrink, .embed-overlay__close")) return; // let the live embed / its controls handle their own input
+      const tappedPoster = !!(ytPoster && (e.target === ytPoster || ytPoster.contains(e.target)));
+
+      // View mode: nothing drags and nothing selects, but the board stays
+      // alive — a TAP plays a video, opens a buried link, or reveals a
+      // group's notes directly (no select-first step: with no selection to
+      // disambiguate from, the first tap can just mean what it says). A
+      // DRAG deliberately falls through to the viewport — not stopping
+      // propagation is what lets a pan start anywhere, including on items,
+      // so the whole mosaic handles like one fixed surface. The viewport
+      // captures the pointer, so pointerup is watched on document (capture
+      // retargets events to the capturer; they still bubble to document).
+      if (this.locked) {
+        const sx = e.clientX, sy = e.clientY;
+        const onUp = (ev) => {
+          document.removeEventListener("pointerup", onUp);
+          if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > TAP_SLOP) return; // was a pan
+          if (tappedPoster && item.type === "youtube") {
+            this._setYtPlaying(el.querySelector(".yt-card"), item, true);
+          } else if (this._children(item.id).length) {
+            this.toggleExpand(item);
+          } else if (item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
+            this._activateEmbed(embedOverlay, item);
+          }
+        };
+        document.addEventListener("pointerup", onUp);
+        return;
+      }
+
       e.stopPropagation();
       const wasSelected = this.selected === item.id;
-      const tappedPoster = !!(ytPoster && (e.target === ytPoster || ytPoster.contains(e.target)));
       this.select(item.id);
 
       if (this.drawMode) return this._startStroke(e, bodyTarget, item, svg);
@@ -1526,6 +1574,7 @@ export class ItemLayer {
     // Double-click a text note to edit it.
     if (item.type === "text") {
       el.addEventListener("dblclick", (e) => {
+        if (this.locked) return; // words are fixed in view mode — "read" still opens them
         e.stopPropagation();
         // The header and the body are edited separately — whichever you
         // actually double-clicked is the one that opens. e.target can't

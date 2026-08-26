@@ -158,7 +158,11 @@ export class DocViewer {
     this.annotations = [];
     this.pages = [];
     this.titleEl.textContent = item.title || "note";
-    this.hintEl.textContent = "Edit freely — changes save as you type.";
+    // No onSave = a pure reader (view mode): typing into a textarea whose
+    // changes silently vanish would be worse than not letting you type.
+    this.hintEl.textContent = onSave
+      ? "Edit freely — changes save as you type."
+      : "Reading — press edit on the canvas to change this note.";
     this.pagesEl.innerHTML = "";
     this.marginEl.innerHTML = "";
     this.el.hidden = false;
@@ -170,6 +174,7 @@ export class DocViewer {
     area.className = "docviewer__noteedit";
     area.value = item.text || "";
     area.placeholder = "…";
+    area.readOnly = !onSave;
     page.appendChild(area);
     this.pagesEl.appendChild(page);
     area.focus();

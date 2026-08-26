@@ -67,6 +67,60 @@ html, body {
 }
 .undo-btn:disabled { opacity: .35; cursor: default; box-shadow: none; }
 .undo-btn:not(:disabled):hover { background: rgba(176, 125, 75, .12); }
+/* ---------- View / edit mode ---------- */
+/* The mosaic opens fixed; ✎ edit unlocks it. While editing, the canvas
+   wears a subtle warm tint and an inner frame — enough to always know
+   which mode you're in at a glance, without changing how any item looks. */
+.edit-toggle {
+  position: fixed;
+  top: 14px; left: 144px;
+  z-index: 30;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+.edit-toggle:hover { background: rgba(176, 125, 75, .12); }
+.edit-toggle.is-editing {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+/* The tint layer: painted by the viewport's own backdrop so it pans and
+   zooms as part of the scene's ground, not a film floating over items. */
+#canvasView:not(.is-viewing) .viewport {
+  background-color: #fdf9f0; /* faint warm wash = you are editing */
+}
+/* The frame: a fixed inner border over everything, pointer-transparent. */
+#canvasView:not(.is-viewing)::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  border: 3px solid rgba(176, 125, 75, .55);
+  z-index: 25;
+}
+/* View mode hides every editing affordance; the add-toolbar and undo go
+   too — they're statements about changing the board. Viewing controls
+   (play, open link, read note, pocket) all stay. */
+#canvasView.is-viewing .toolbar,
+#canvasView.is-viewing .undo-btn,
+#canvasView.is-viewing .item-bar,
+#canvasView.is-viewing .canvas-rename-btn,
+#canvasView.is-viewing .yt-card__edit,
+#canvasView.is-viewing .link-card__edit,
+#canvasView.is-viewing .handle,
+#canvasView.is-viewing .delete,
+#canvasView.is-viewing .pocket-toggle,
+#canvasView.is-viewing .pocket-panel {
+  display: none !important;
+}
+
 .canvas-title {
   position: fixed;
   top: 16px; left: 50%;
