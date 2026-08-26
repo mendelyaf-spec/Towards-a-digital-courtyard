@@ -121,6 +121,50 @@ html, body {
   display: none !important;
 }
 
+/* ---------- Layer breadcrumb ---------- */
+/* Where you are, and the way back up. Hidden entirely at the top-level
+   mosaic — it only exists once there's somewhere it could take you. */
+.layer-crumb {
+  position: fixed;
+  top: 16px; left: 50%;
+  transform: translateX(-50%);
+  z-index: 22;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  max-width: min(86vw, 640px);
+  overflow-x: auto;
+  padding: 6px 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  font-size: 13px;
+  color: var(--ink);
+}
+.layer-crumb__step {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--ink-faint, #9a927a);
+  font-size: 13px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  cursor: pointer;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.layer-crumb__step:hover { background: rgba(176, 125, 75, .12); color: var(--ink); }
+.layer-crumb__step.is-here {
+  color: var(--ink);
+  font-weight: 600;
+  background: rgba(176, 125, 75, .12);
+  cursor: default;
+}
+.layer-crumb__sep { flex: none; color: var(--line); font-size: 11px; }
+
 .canvas-title {
   position: fixed;
   top: 16px; left: 50%;
@@ -346,32 +390,14 @@ html, body {
   overflow: hidden;
   border-radius: inherit;
 }
-/* The header: the note's opening words until you write your own. One line,
-   always visible — the body scrolls under it rather than pushing it away. */
-.text-head {
-  flex: none;
-  padding: 6px 10px 3px;
-  font-weight: 600;
-  line-height: 1.25;
-  outline: none;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: text;
-}
-.text-head[contenteditable="true"] {
-  white-space: normal;      /* let a long title be seen while it's edited */
-  text-overflow: clip;
-  background: rgba(176, 125, 75, .08);
-  border-radius: 4px;
-}
-/* The body scrolls instead of spilling — as you type past the bottom the
-   view follows the caret (items.js's scrollCaretIntoView). */
+/* A simple note: one editable body, filling the box. It scrolls instead of
+   spilling out past the edges — as you type past the bottom the view
+   follows the caret (items.js's scrollCaretIntoView). */
 .text-body {
   flex: 1;
   min-height: 0;
   width: 100%;
-  padding: 2px 10px 8px;
+  padding: 8px 10px;
   font-size: 16px; /* default — overridden per item by items.js via item.fontSize */
   line-height: 1.3;
   outline: none;
@@ -403,7 +429,6 @@ html, body {
 .item--text.has-shape .text-card {
   padding: 12% 16%;
 }
-.item--text.has-shape .text-head,
 .item--text.has-shape .text-body {
   text-align: center;
   padding-left: 0;
@@ -453,8 +478,22 @@ html, body {
 .item.is-drawing { cursor: crosshair; }
 .item.is-drawing .ink { pointer-events: auto; }
 
-/* Attached-note badge + count. */
-.has-notes { box-shadow: 0 0 0 2px rgba(176,125,75,.25); }
+/* The halo: an item with a layer beneath it (double-click to descend)
+   glows as if light were escaping from the space under it, rather than
+   wearing a thin selection-like ring — a layer is a place, not a flag. */
+.has-layer {
+  box-shadow:
+    0 1px 2px rgba(60, 50, 35, .14),
+    0 10px 22px -6px rgba(176, 125, 75, .55),
+    0 16px 30px -8px rgba(60, 50, 35, .28);
+}
+.has-layer:hover {
+  box-shadow:
+    0 1px 2px rgba(60, 50, 35, .14),
+    0 14px 30px -6px rgba(176, 125, 75, .7),
+    0 22px 40px -8px rgba(60, 50, 35, .34);
+}
+/* A count of what's on that layer — small, so the halo stays the signal. */
 .badge {
   position: absolute;
   left: 50%; bottom: -10px;

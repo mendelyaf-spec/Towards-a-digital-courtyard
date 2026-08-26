@@ -157,7 +157,7 @@ export class DocViewer {
     this.recordId = null;
     this.annotations = [];
     this.pages = [];
-    this.titleEl.textContent = item.title || "note";
+    this.titleEl.textContent = "note";
     // No onSave = a pure reader (view mode): typing into a textarea whose
     // changes silently vanish would be worse than not letting you type.
     this.hintEl.textContent = onSave

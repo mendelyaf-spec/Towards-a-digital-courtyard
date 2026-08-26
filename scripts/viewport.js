@@ -60,6 +60,33 @@ export class Viewport {
     this.apply();
   }
 
+  /** Travel to a world-space rect, centering it and (if it's small) zooming
+   *  in a little to meet it — used when descending into a layer, so arriving
+   *  feels like going somewhere rather than an instant cut. */
+  travelTo(rect, { minScale = 0.6, maxScale = 1.4, pad = 80 } = {}) {
+    const w = Math.max(1, rect.w + pad * 2);
+    const h = Math.max(1, rect.h + pad * 2);
+    const fit = Math.min(window.innerWidth / w, window.innerHeight / h);
+    this.scale = Math.min(maxScale, Math.max(minScale, fit));
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    this.x = window.innerWidth / 2 - cx * this.scale;
+    this.y = window.innerHeight / 2 - cy * this.scale;
+    this.apply();
+  }
+
+  /** The current view, as travelTo's counterpart — snapshot before
+   *  descending, restore on the way back up so ascending returns you to
+   *  exactly where you were, not just to a generic reset. */
+  snapshot() {
+    return { x: this.x, y: this.y, scale: this.scale };
+  }
+  restore(s) {
+    if (!s) return;
+    this.x = s.x; this.y = s.y; this.scale = s.scale;
+    this.apply();
+  }
+
   _bind() {
     // Pan / pinch are only initiated from empty canvas; items stop propagation.
     this.vp.addEventListener("pointerdown", (e) => this._down(e));

@@ -70,8 +70,10 @@ layer.groupBg = bg;
 layer.onVisibility = () => bg.refreshGroupedVisibility();
 layer.onRemove = (ids) => bg.removeGroupedUnder(ids);
 
-const bgParentTarget = () =>
-  layer.selected && layer.isOpen(layer.selected) ? layer.selected : undefined;
+// A background placed while you're inside a layer groups with THAT layer —
+// simply "wherever you're currently standing," now that descending (not
+// selecting) is what it means to be inside an item's layer.
+const bgParentTarget = () => layer.focusId || undefined;
 
 // --- toolbar wiring ---
 const bgToggle = document.getElementById("bgToggle");
@@ -366,6 +368,37 @@ function applyEditMode(editing) {
 
 editToggle.addEventListener("click", () => applyEditMode(layer.locked));
 applyEditMode(false); // every canvas opens fixed
+
+// ---------- layers: the breadcrumb trail ----------
+const layerCrumb = document.getElementById("layerCrumb");
+layer.onFocusChange = (crumbs) => {
+  layerCrumb.hidden = crumbs.length === 0;
+  if (!crumbs.length) { layerCrumb.innerHTML = ""; return; }
+  const root = document.createElement("button");
+  root.type = "button";
+  root.className = "layer-crumb__step";
+  root.textContent = "⌂ mosaic";
+  root.title = "Back to the top-level mosaic";
+  root.addEventListener("click", () => layer.ascend(0));
+  layerCrumb.replaceChildren(root);
+  crumbs.forEach(({ label }, i) => {
+    const sep = document.createElement("span");
+    sep.className = "layer-crumb__sep";
+    sep.textContent = "›";
+    sep.setAttribute("aria-hidden", "true");
+    const here = i === crumbs.length - 1;
+    const step = document.createElement("button");
+    step.type = "button";
+    step.className = "layer-crumb__step" + (here ? " is-here" : "");
+    step.textContent = label;
+    step.disabled = here;
+    if (!here) {
+      step.title = `Back to ${label}`;
+      step.addEventListener("click", () => layer.ascend(i + 1));
+    }
+    layerCrumb.append(sep, step);
+  });
+};
 
 // ---------- undo ----------
 const undoBtn = document.getElementById("undoBtn");

@@ -63,6 +63,15 @@ export class ItemLayer {
     this.selected = null;
     this.drawMode = false;
     this.color = "#b04b4b";
+    // Layers: every item on the mosaic is "layer one"; an item with
+    // children has a layer beneath it you can descend into (double-click
+    // an item wearing the halo). focusStack is the breadcrumb trail —
+    // [] means the top-level mosaic; its last id is the current layer.
+    // Descending/ascending is navigation, not an edit — it never touches
+    // undo history, same as selecting or panning.
+    this.focusStack = [];
+    this.viewStack = [];   // a Viewport snapshot per focusStack entry, so ascending returns you to exactly where you were
+    this.onFocusChange = null; // hook: (breadcrumb: [{id,label}]) -> void — main.js renders it
     // The mosaic is view-only by default — dragging, resizing, deleting,
     // drawing, typing, and adding new items all require Edit first. Viewing
     // stays fully alive either way: pan/zoom, tapping a video to play it,
@@ -106,11 +115,19 @@ export class ItemLayer {
     this._applyVisibility();
   }
 
+  /** The layer you're currently inside, or null for the top-level mosaic. */
+  get focusId() {
+    return this.focusStack.length ? this.focusStack[this.focusStack.length - 1] : null;
+  }
+
   // Swap the whole canvas: clear the current nodes and render another canvas's
   // items. The store rebinds `items` to the opened canvas.
   loadCanvas(id) {
     this._activeEmbed?.stop(); // a playing video must not keep ticking into another canvas
     this.closeTimedNotes();
+    this.focusStack = [];
+    this.viewStack = [];
+    this._notifyFocus();
     for (const el of this.nodes.values()) el.remove();
     this.nodes.clear();
     this.selected = null;
@@ -147,8 +164,16 @@ export class ItemLayer {
     this.nodes.clear();
     this.selected = null;
     this._hideBar();
+    // An undo can remove the very item whose layer you're inside (or
+    // anything above it) — surface back to wherever in the trail still
+    // exists rather than leave focusId pointing at nothing.
+    while (this.focusStack.length && !this._get(this.focusId)) {
+      this.focusStack.pop();
+      this.viewStack.pop();
+    }
     for (const it of items) this._render(it);
     this._applyVisibility();
+    this._notifyFocus();
   }
 
   // ---------- tree helpers (recursive grouping) ----------
@@ -170,14 +195,14 @@ export class ItemLayer {
     return items.find((it) => it.id === id);
   }
   _visible(item) {
-    // Visible only if every ancestor up the chain is expanded.
-    let p = item.parentId;
-    while (p) {
-      const parent = this._get(p);
-      if (!parent || !parent.expanded) return false;
-      p = parent.parentId;
-    }
-    return true;
+    // A layer shows exactly its own contents: the top-level mosaic shows
+    // root items, a descended layer shows only the focus item's direct
+    // children — nothing above, nothing further below (that's the NEXT
+    // layer, reached by descending again). This replaced an older
+    // ancestor-expanded-chain walk that revealed nested notes in place
+    // alongside everything else; a layer is a place you travel to now,
+    // not a fold-out.
+    return (item.parentId || null) === this.focusId;
   }
 
   // Public: does this item have attached notes?
@@ -187,8 +212,7 @@ export class ItemLayer {
   // Public: is this group "open" — expanded and itself visible? A grouped
   // background binds to / shows with an open group.
   isOpen(id) {
-    const item = this._get(id);
-    return !!(item && item.expanded && this._visible(item));
+    return id === this.focusId;
   }
 
   // ---------- creating ----------
@@ -221,6 +245,11 @@ export class ItemLayer {
       w = w || 200;
       h = h || 68;
     }
+    // Adding something while you're inside a layer puts it on THAT layer,
+    // not back at the top level — you're standing there, so that's where
+    // it lands. An explicit parentId (attachNote, a duplicate, anything
+    // that names its own parent) always wins over this default.
+    if (parentId === undefined) parentId = this.focusId || undefined;
     let x, y;
     w = w || 160;
     h = h || 160;
@@ -249,7 +278,7 @@ export class ItemLayer {
       // Black on white by default — not tied to whatever the ink/drawing
       // color happens to be set to, which used to leave fresh notes in
       // whatever color you last drew with.
-      ...(type === "text" ? { text: text ?? "", title: deriveTitle(text), color: "#1a1a1a", bgColor: "#ffffff", fontSize: 16, ...(shapeSrc ? { shapeSrc } : {}) } : {}),
+      ...(type === "text" ? { text: text ?? "", color: "#1a1a1a", bgColor: "#ffffff", fontSize: 16, ...(shapeSrc ? { shapeSrc } : {}) } : {}),
       ...(type === "file" ? { pocketId, name: name || "file", mime: mime || "" } : {}),
       ...(type === "youtube" ? { videoId, title: title || "", thumbnailUrl: thumbnailUrl || "" } : {}),
       ...(type === "link" ? { url, name: name || domain || "link", domain: domain || "", faviconUrl: faviconUrl || "" } : {}),
@@ -299,24 +328,18 @@ export class ItemLayer {
         el.appendChild(shapeImg);
         this._applyNoteShapeClip(el, item);
       }
-      // A note is a header plus a body. The header is the first few words
-      // you type until you write your own; the body scrolls rather than
-      // spilling out of the box. Both live inside .text-card, which does
-      // the clipping — putting overflow on the item itself would also clip
-      // the delete button, resize handle and note badge, which sit outside
-      // the box by design.
+      // A simple note: one editable body, filling the box. It scrolls
+      // rather than spilling text out past the edges — .text-card does the
+      // clipping, kept off the item itself since that would also clip the
+      // delete button, resize handle and note badge, which sit outside the
+      // box by design.
       const card = document.createElement("div");
       card.className = "text-card";
-
-      const head = document.createElement("div");
-      head.className = "text-head";
-      head.textContent = item.title || "";
-      head.title = "Double-click to rename this note";
 
       const t = document.createElement("div");
       t.className = "text-body";
       t.textContent = item.text || "";
-      card.append(head, t);
+      card.append(t);
       el.appendChild(card);
       this._applyTextStyle(el, item);
       // Every note gets a way to open and READ it — the words on the canvas
@@ -937,19 +960,16 @@ export class ItemLayer {
     for (const s of item.strokes || []) svg.appendChild(strokePath(s));
   }
 
+  /** The halo (a warm glow) plus a small count is how an item shows it has
+   *  a layer beneath it — double-click it to go there. */
   _updateBadge(item) {
     const el = this.nodes.get(item.id);
     if (!el) return;
     const badge = el.querySelector(".badge");
     const n = this._children(item.id).length;
-    if (n === 0) {
-      badge.style.display = "none";
-      el.classList.remove("has-notes");
-    } else {
-      badge.style.display = "";
-      badge.textContent = (item.expanded ? "▾ " : "▸ ") + n;
-      el.classList.add("has-notes");
-    }
+    badge.style.display = n ? "" : "none";
+    badge.textContent = String(n);
+    el.classList.toggle("has-layer", n > 0);
   }
 
   // ---------- visibility (collapse/expand) ----------
@@ -965,11 +985,67 @@ export class ItemLayer {
     this.onVisibility?.(); // grouped backgrounds follow expand/collapse
   }
 
-  toggleExpand(item) {
-    item.expanded = !item.expanded;
-    this._updateBadge(item);
+  // ---------- layers: descending into (and back out of) an item ----------
+  /** A short, human label for the breadcrumb trail. */
+  _layerLabel(item) {
+    if (!item) return "mosaic";
+    if (item.type === "text") return deriveTitle(item.text) || "note";
+    return item.name || item.title || item.type;
+  }
+
+  _notifyFocus() {
+    const crumbs = this.focusStack.map((id) => ({ id, label: this._layerLabel(this._get(id)) }));
+    this.onFocusChange?.(crumbs);
+  }
+
+  /** Bounding box of a set of items, in world space — used to travel the
+   *  viewport to a layer's actual contents rather than just its origin. */
+  _boundsOf(list) {
+    if (!list.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const it of list) {
+      minX = Math.min(minX, it.x); minY = Math.min(minY, it.y);
+      maxX = Math.max(maxX, it.x + it.w); maxY = Math.max(maxY, it.y + it.h);
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+
+  /** Travel into `item`'s layer. Callers decide WHEN that's meaningful —
+   *  the double-click handler only offers it once the item already has a
+   *  halo (real content below); attachNote() calls this to seed a still-
+   *  empty layer and arrive in the same motion, so the note it creates
+   *  next is already visible. Navigation, not an edit: no undo snapshot. */
+  descend(item) {
+    if (!item) return false;
+    this._activeEmbed?.stop(); // don't leave a video from this layer still playing behind you
+    this.closeTimedNotes();
+    this.select(null);
+    this.viewStack.push(this.vp.snapshot());
+    this.focusStack.push(item.id);
     this._applyVisibility();
-    save();
+    const bounds = this._boundsOf(this._children(item.id)) || { x: item.x, y: item.y, w: item.w, h: item.h };
+    this.vp.travelTo(bounds);
+    this.positionBar();
+    this._notifyFocus();
+    return true;
+  }
+
+  /** Step back up one layer, or jump straight to a specific depth (0 =
+   *  the top-level mosaic) — the breadcrumb trail passes an index. */
+  ascend(toIndex = this.focusStack.length - 1) {
+    if (!this.focusStack.length) return;
+    this._activeEmbed?.stop();
+    this.closeTimedNotes();
+    this.select(null);
+    let snap;
+    while (this.focusStack.length > Math.max(0, toIndex)) {
+      this.focusStack.pop();
+      snap = this.viewStack.pop();
+    }
+    this._applyVisibility();
+    if (snap) this.vp.restore(snap);
+    this.positionBar();
+    this._notifyFocus();
   }
 
   // ---------- selection + contextual bar ----------
@@ -1208,23 +1284,12 @@ export class ItemLayer {
     save();
   }
 
-  /** Colour and size for a note's header and body — one place, so the
-   *  colour swatch and the size slider both reach the whole note. */
+  /** Colour and size for a note's body. */
   _applyTextStyle(el, item) {
-    const color = item.color || this.color;
-    const size = item.fontSize || 16;
     const body = el.querySelector(".text-body");
-    const head = el.querySelector(".text-head");
-    if (body) {
-      body.style.color = color;
-      body.style.fontSize = size + "px";
-    }
-    if (head) {
-      head.style.color = color;
-      // A header reads as a header by being a touch smaller and bold —
-      // scaling with the note's own size rather than a fixed number.
-      head.style.fontSize = Math.max(11, Math.round(size * 0.85)) + "px";
-    }
+    if (!body) return;
+    body.style.color = item.color || this.color;
+    body.style.fontSize = (item.fontSize || 16) + "px";
   }
 
   /** Give a note a photo's shape (a cutout data URL), or clear it with null. */
@@ -1311,14 +1376,16 @@ export class ItemLayer {
   attachNote() {
     const parent = this._get(this.selected);
     if (!parent) return;
-    parent.expanded = true;
+    // Travel FIRST, while the layer's still empty — so the note this
+    // creates next lands somewhere already visible and can be selected
+    // and opened for editing immediately, same as any other fresh note.
+    if (this.focusId !== parent.id) this.descend(parent);
     const note = this.add("text", {
       parentId: parent.id,
       text: "",
-      near: { x: parent.x + parent.w + 28, y: parent.y },
+      near: { x: parent.x + parent.w / 2 - 70, y: parent.y },
     });
     this._updateBadge(parent);
-    this._applyVisibility();
     return note;
   }
 
@@ -1473,11 +1540,11 @@ export class ItemLayer {
           if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > TAP_SLOP) return; // was a pan
           if (tappedPoster && item.type === "youtube") {
             this._setYtPlaying(el.querySelector(".yt-card"), item, true);
-          } else if (this._children(item.id).length) {
-            this.toggleExpand(item);
           } else if (item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
             this._activateEmbed(embedOverlay, item);
           }
+          // A layer beneath is entered with a double-click (its own
+          // listener, below) — a single tap no longer reveals it in place.
         };
         document.addEventListener("pointerup", onUp);
         return;
@@ -1548,20 +1615,19 @@ export class ItemLayer {
         // activates it (plays / opens). Otherwise the first touch on a link
         // item would always fire off to a webpage before you ever got the
         // chance to just select it — no way to tell "go there" from "edit
-        // this" apart. Same reasoning toggleExpand already used for notes.
+        // this" apart. Descending into a layer is a double-click, its own
+        // listener below, so it isn't part of this single/second-tap chain.
         //
-        // tappedPoster is checked BEFORE the attached-notes check on purpose:
-        // a tap on the poster is a specific, unambiguous target, so it should
-        // still play even once the item also has a note attached — otherwise
-        // attaching a note to a video silently makes the video untappable
-        // (a real bug this order fixes; a buried item.embed with no poster
-        // of its own gets the same fix via its badge, wired below instead).
+        // tappedPoster is checked BEFORE the embed-activation check on
+        // purpose: a tap on the poster is a specific, unambiguous target, so
+        // it should still play even once the item also has a note attached
+        // — otherwise attaching a note to a video silently makes the video
+        // untappable (a real bug this order fixes; a buried item.embed with
+        // no poster of its own gets the same fix via its badge, below).
         if (moved) {
           save();
         } else if (wasSelected && tappedPoster && item.type === "youtube") {
           this._setYtPlaying(el.querySelector(".yt-card"), item, true);
-        } else if (wasSelected && this._children(item.id).length) {
-          this.toggleExpand(item);
         } else if (wasSelected && item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
           this._activateEmbed(embedOverlay, item);
         }
@@ -1570,22 +1636,30 @@ export class ItemLayer {
       bodyTarget.addEventListener("pointerup", onUp);
     });
 
-    // Double-click a text note to edit it.
-    if (item.type === "text") {
-      el.addEventListener("dblclick", (e) => {
-        if (this.locked) return; // words are fixed in view mode — "read" still opens them
+    // Double-click: descend into this item's layer if it has one — in
+    // either view or edit mode, same as pan/zoom/tap-to-play, since
+    // traveling through the mosaic isn't an edit. Only once there's
+    // nowhere to go does double-click fall back to a type's own meaning
+    // (today, just a text note's in-place editor) — so the SAME gesture
+    // cleanly means two different things depending on whether this item
+    // has a layer beneath it, never both at once.
+    el.addEventListener("dblclick", (e) => {
+      if (this._children(item.id).length) {
         e.stopPropagation();
-        // The header and the body are edited separately — whichever you
-        // actually double-clicked is the one that opens. e.target can't
-        // answer that: the body pointerdown calls setPointerCapture on the
-        // item, and a captured pointer retargets its click/dblclick to the
-        // capturing element, so e.target is ALWAYS the item here. Hit-test
-        // the coordinates instead, which is unaffected by capture.
-        const under = document.elementFromPoint(e.clientX, e.clientY);
-        if (under?.closest(".text-head")) this._editTitle(item, el);
-        else this._editText(item, el);
-      });
-    }
+        this.descend(item);
+        return;
+      }
+      if (item.type !== "text") return;
+      if (this.locked) return; // words are fixed in view mode — "read" still opens them
+      e.stopPropagation();
+      // The header and the body are edited separately — whichever you
+      // actually double-clicked is the one that opens. e.target can't
+      // answer that: the body pointerdown calls setPointerCapture on the
+      // item, and a captured pointer retargets its click/dblclick to the
+      // capturing element, so e.target is ALWAYS the item here. Hit-test
+      // the coordinates instead, which is unaffected by capture.
+      this._editText(item, el);
+    });
 
     // Resize via the corner handle.
     handle.addEventListener("pointerdown", (e) => {
@@ -1644,7 +1718,6 @@ export class ItemLayer {
   _editText(item, el) {
     pushUndoSnapshot(); // captures the pre-edit text — one undo step per edit session
     const body = el.querySelector(".text-body");
-    const head = el.querySelector(".text-head");
     body.contentEditable = "true";
     body.focus();
     // Caret to the END rather than selecting everything: on a note with
@@ -1657,68 +1730,19 @@ export class ItemLayer {
     sel?.addRange(range);
     body.scrollTop = body.scrollHeight;
 
-    const onInput = () => {
-      // Follow the words: keep whatever is being typed inside the box.
-      scrollCaretIntoView(body);
-      // The header tracks the opening words until you write your own.
-      if (!item.titleEdited && head) {
-        item.title = deriveTitle(body.textContent);
-        head.textContent = item.title;
-      }
-    };
+    // Follow the words: keep whatever is being typed inside the box,
+    // instead of letting it spill out past the edges.
+    const onInput = () => scrollCaretIntoView(body);
     body.addEventListener("input", onInput);
 
     const finish = () => {
       body.contentEditable = "false";
       item.text = body.textContent.trim();
-      if (!item.titleEdited) item.title = deriveTitle(item.text);
-      if (head) head.textContent = item.title || "";
       body.removeEventListener("input", onInput);
       body.removeEventListener("blur", finish);
       save();
     };
     body.addEventListener("blur", finish);
-  }
-
-  /** Edit a note's header. Typing here makes it yours — it stops tracking
-   *  the body's opening words from then on. */
-  _editTitle(item, el) {
-    pushUndoSnapshot();
-    const head = el.querySelector(".text-head");
-    if (!head) return;
-    head.contentEditable = "true";
-    head.focus();
-    const range = document.createRange();
-    range.selectNodeContents(head);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel?.removeAllRanges();
-    sel?.addRange(range);
-
-    // A header is one line — Enter commits it rather than breaking it.
-    const onKey = (e) => {
-      if (e.key === "Enter") { e.preventDefault(); head.blur(); }
-      if (e.key === "Escape") { head.textContent = item.title || ""; head.blur(); }
-    };
-    head.addEventListener("keydown", onKey);
-
-    const finish = () => {
-      head.contentEditable = "false";
-      const typed = head.textContent.replace(/\s+/g, " ").trim();
-      if (typed) {
-        item.title = typed;
-        item.titleEdited = true; // yours now — stop deriving it
-      } else {
-        // Cleared it: fall back to tracking the body's opening words again.
-        delete item.titleEdited;
-        item.title = deriveTitle(item.text);
-        head.textContent = item.title || "";
-      }
-      head.removeEventListener("keydown", onKey);
-      head.removeEventListener("blur", finish);
-      save();
-    };
-    head.addEventListener("blur", finish);
   }
 
   _startStroke(e, el, item, svg) {
