@@ -377,6 +377,19 @@ html, body {
   color: #1a1a1a; /* default — overridden per item by items.js via item.color */
   border: 1px dashed #c9bfa9;
   border-radius: 8px;
+  /* Same reasoning as .item--image: a shaped note's clip-path lives on
+     .text-card, not here, so a click on a transparent corner of the shape
+     can fall through to whatever's behind it — which only works for the
+     element the clip-path is actually applied to. Harmless for a PLAIN
+     note too, since .text-card already covers the exact same rectangle el
+     would have. */
+  pointer-events: none;
+}
+.item--text .text-card,
+.item--text .handle,
+.item--text .delete,
+.item--text .text-doc-open {
+  pointer-events: auto;
 }
 /* The clipping layer. Deliberately NOT the item itself: the delete button,
    resize handle and note badge sit outside the box by design (negative
@@ -492,6 +505,35 @@ html, body {
     0 1px 2px rgba(60, 50, 35, .14),
     0 14px 30px -6px rgba(176, 125, 75, .7),
     0 22px 40px -8px rgba(60, 50, 35, .34);
+}
+/* A silhouette (a cut-out photo, or a note wearing one) has its actual
+   clip-path on an INNER element (.item--image__clip / .text-card), not on
+   the item itself — box-shadow only ever follows an element's own box, so
+   applied here it would glow as a rectangle around the true shape. filter:
+   drop-shadow doesn't have that limitation: it follows the alpha of
+   whatever's actually painted, which is already the real silhouette by the
+   time it reaches this outer element — so it hugs the outline instead of
+   boxing it. (Confirmed empirically: drop-shadow escapes an element's OWN
+   overflow:hidden, but is clipped away entirely if clip-path sits on the
+   very same element as the filter — which is exactly why the clip-path
+   lives one level in, not here.) These two override the plain box-shadow
+   above for exactly the two silhouetted cases; every other item type
+   (rect, circle, a plain note, youtube, file, link) is already an exact
+   rectangle or circle that box-shadow hugs correctly on its own.  */
+.item--image.has-layer,
+.item--text.has-shape.has-layer {
+  box-shadow: none;
+  filter:
+    drop-shadow(0 1px 1px rgba(60, 50, 35, .16))
+    drop-shadow(0 6px 12px rgba(176, 125, 75, .55))
+    drop-shadow(0 10px 20px rgba(60, 50, 35, .3));
+}
+.item--image.has-layer:hover,
+.item--text.has-shape.has-layer:hover {
+  filter:
+    drop-shadow(0 1px 1px rgba(60, 50, 35, .16))
+    drop-shadow(0 8px 16px rgba(176, 125, 75, .7))
+    drop-shadow(0 14px 26px rgba(60, 50, 35, .36));
 }
 /* A count of what's on that layer — small, so the halo stays the signal. */
 .badge {

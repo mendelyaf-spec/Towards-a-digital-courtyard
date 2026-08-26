@@ -314,10 +314,26 @@ export class ItemLayer {
       imageClip = clip;
     }
     let fileOpen = null;
+    let textCard = null;
     if (item.type === "text") {
+      // A simple note: one editable body, filling the box. It scrolls
+      // rather than spilling text out past the edges — .text-card does the
+      // clipping, kept off the item itself since that would also clip the
+      // delete button, resize handle and note badge, which sit outside the
+      // box by design (same reasoning as .item--image__clip).
+      const card = document.createElement("div");
+      card.className = "text-card";
+      textCard = card;
+
       // A note can wear a photo's shape: the cutout becomes the note's own
       // outline (clip-path from its alpha, same tracer the canvas photos
-      // use) with the words sitting inside it.
+      // use) with the words sitting inside it. The image AND the clip both
+      // live on .text-card, not on the item itself — clip-path excludes
+      // whatever it clips away from hit-testing too, and el still needs to
+      // host the delete button, resize handle and note badge outside that
+      // clipped area (their negative-offset positions put them outside the
+      // shape, so a clip-path directly on el would silently swallow them —
+      // a real bug this fixes, not a hypothetical one).
       if (item.shapeSrc) {
         el.classList.add("has-shape");
         const shapeImg = document.createElement("img");
@@ -325,16 +341,9 @@ export class ItemLayer {
         shapeImg.src = item.shapeSrc;
         shapeImg.alt = "";
         shapeImg.draggable = false;
-        el.appendChild(shapeImg);
-        this._applyNoteShapeClip(el, item);
+        card.appendChild(shapeImg);
+        this._applyNoteShapeClip(card, item);
       }
-      // A simple note: one editable body, filling the box. It scrolls
-      // rather than spilling text out past the edges — .text-card does the
-      // clipping, kept off the item itself since that would also clip the
-      // delete button, resize handle and note badge, which sit outside the
-      // box by design.
-      const card = document.createElement("div");
-      card.className = "text-card";
 
       const t = document.createElement("div");
       t.className = "text-body";
@@ -477,7 +486,7 @@ export class ItemLayer {
     el.appendChild(handle);
 
     this._applyFill(el, item);
-    this._wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay, imageClip });
+    this._wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay, imageClip, textCard });
     this.world.appendChild(el);
     this.nodes.set(item.id, el);
     this._updateBadge(item);
@@ -530,7 +539,7 @@ export class ItemLayer {
   // itself, so the note really IS that shape — its edges, its hit area —
   // rather than a rectangle showing a picture. Shares the same per-src
   // cache as canvas photos, so the same cutout is only ever traced once.
-  async _applyNoteShapeClip(el, item) {
+  async _applyNoteShapeClip(clipEl, item) {
     const src = item.shapeSrc;
     if (!src) return;
     let clipPath = this._shapeClipCache.get(src);
@@ -540,8 +549,8 @@ export class ItemLayer {
     }
     // The node can be re-rendered or reused for another item while an async
     // trace is in flight — only apply if this element is still this item's.
-    if (!clipPath || !this.world.contains(el) || this._get(item.id)?.shapeSrc !== src) return;
-    el.style.clipPath = clipPath;
+    if (!clipPath || !this.world.contains(clipEl) || this._get(item.id)?.shapeSrc !== src) return;
+    clipEl.style.clipPath = clipPath;
   }
 
   // Fades just the shape's fill / wash — text, ink, image, and controls
@@ -1409,15 +1418,15 @@ export class ItemLayer {
   }
 
   // ---------- per-item interaction ----------
-  _wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay, imageClip }) {
-    // For an image item, the body select/move/tap gesture is hosted on the
-    // (now shape-clipped) clip element instead of the item itself — el is
-    // pointer-events:none for images (see styles/main.css) precisely so a
-    // click on a transparent corner of the cutout falls through to
-    // whatever's behind, and that only works for the element clip-path is
-    // actually applied to. Every other item type is unaffected: el IS the
-    // body target, exactly as before.
-    const bodyTarget = imageClip || el;
+  _wire(el, item, { svg, handle, del, badge, fileOpen, linkOpen, linkEdit, ytPoster, ytCard, embedOverlay, imageClip, textCard }) {
+    // For an image or a text item, the body select/move/tap gesture is
+    // hosted on the (possibly shape-clipped) clip element instead of the
+    // item itself — el is pointer-events:none for both (see styles/main.css)
+    // precisely so a click on a transparent corner of a cutout, or of a
+    // note wearing one, falls through to whatever's behind, and that only
+    // works for the element clip-path is actually applied to. Every other
+    // item type is unaffected: el IS the body target, exactly as before.
+    const bodyTarget = imageClip || textCard || el;
     badge.style.pointerEvents = "none";
 
     // File cards (docs/videos placed from the pocket) open on their own
