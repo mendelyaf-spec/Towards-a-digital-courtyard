@@ -91,6 +91,7 @@ export class Studio {
     // dropped instead of overwriting a newer preview.
     this._photoSeq = 0;
     this._traceSeq = 0;
+    this._aiTimeoutMs = 30000; // a hung model fetch/inference degrades to "unavailable" rather than pending forever
     this._ai = { key: null, alpha: null, pending: null, failedKey: null };
     this._aiActive = false; // whether the current preview came from the model
 
@@ -274,9 +275,14 @@ export class Studio {
     const path = this.mode === "trace" ? this.tracePath : null;
     (async () => {
       let alpha = null;
+      // A stalled network fetch (the model is a one-time ~16MB download)
+      // has no natural failure — race it so the UI always resolves to a
+      // real state: refined, or honestly unavailable.
+      const timeout = new Promise((res) => setTimeout(() => res(null), this._aiTimeoutMs));
+      const run = async (canvas) => Promise.race([subjectAlpha(canvas), timeout]);
       try {
         if (!path) {
-          alpha = await subjectAlpha(source);
+          alpha = await run(source);
         } else {
           // Crop to the loop's neighborhood so the model sees the circled
           // thing as THE subject of its little image — that's what pulls a
@@ -296,7 +302,7 @@ export class Studio {
             crop.width = cw;
             crop.height = ch;
             crop.getContext("2d").drawImage(source, x0, y0, cw, ch, 0, 0, cw, ch);
-            const cropAlpha = await subjectAlpha(crop);
+            const cropAlpha = await run(crop);
             if (cropAlpha) {
               alpha = new Uint8ClampedArray(source.width * source.height);
               for (let y = 0; y < ch; y++) {
@@ -327,11 +333,26 @@ export class Studio {
     const tracing = this.mode === "trace" && !this.tracePath;
     this.previewBox.classList.toggle("is-tracing", tracing);
     this.retraceBtn.hidden = !(this.mode === "trace" && this.tracePath);
-    this.nextBtn.disabled = !this.result;
 
     const key = this._aiKey();
     const aiRan = !!(key && this._ai.key === key && this._ai.alpha); // the model produced A mask for this state
     const aiState = this._aiActive ? "active" : aiRan ? "empty" : key && this._ai.failedKey === key ? "unavailable" : "pending";
+    // At the slider's minimum, trace mode's promise is literal — keep
+    // everything circled, no model. An EXPLICIT choice, so it commits
+    // freely. (Recomputed here rather than passed in: _syncStage1 runs on
+    // every recompute and this must never drift from _recompute's own.)
+    const literalKeepAll = this.mode === "trace" && Number(this.tolerance.value) <= Number(this.tolerance.min);
+    // The hole this closes: while the model is still isolating the thing
+    // you circled, the preview is the LITERAL loop crop — background and
+    // all. It used to be committable during those seconds (a cold model is
+    // a one-time ~16MB download — plenty of time to hit next in good
+    // faith), which shipped exactly the "bits of background instead of the
+    // object" result the refinement exists to prevent. Auto mode already
+    // refuses to commit while pending; trace now does too. The model
+    // failing (offline, timeout) still degrades honestly: aiState becomes
+    // "unavailable", the literal crop stands, and next re-enables.
+    const refinePending = this.mode === "trace" && !!this.tracePath && !literalKeepAll && aiState === "pending";
+    this.nextBtn.disabled = !this.result || refinePending;
     // The slider only governs how tightly the model's mask is cut, so it's
     // meaningless in 'whole' mode (nothing is being cut) and while there's
     // no mask yet in 'auto'. Trace mode keeps it enabled throughout: its
@@ -355,6 +376,12 @@ export class Studio {
               : "Finding the subject… ✨";
     } else if (tracing) {
       hint = "Circle the thing you want — roughly is fine, the loop just says which one, not where to cut.";
+    } else if (literalKeepAll) {
+      // The slider is at its literal minimum — everything circled is kept,
+      // exactly as drawn. (This used to fall through to the "empty" hint
+      // and tell you to drag the slider down when you were already at the
+      // bottom keeping everything — the exact opposite of the truth.)
+      hint = "Keeping everything inside your loop, exactly as drawn — drag the slider right to cut its background away.";
     } else if (aiState === "active") {
       hint = "Got it — that's the thing you circled, cut out whole. Drag the slider to trim its edge.";
     } else if (aiState === "empty") {
@@ -362,7 +389,7 @@ export class Studio {
     } else if (aiState === "unavailable") {
       hint = "Smart cutout isn't available right now — keeping everything inside your loop as is.";
     } else {
-      hint = "Keeping everything inside your loop for now — finding the thing you circled… ✨";
+      hint = "Isolating the thing you circled… ✨ (a moment — then only it survives, not the background inside your loop)";
     }
     this.cutoutHint.textContent = hint;
   }

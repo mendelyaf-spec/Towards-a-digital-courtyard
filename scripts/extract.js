@@ -175,6 +175,48 @@ const SELECT_OVERLAP = 0.25;
  * Auto-crops to the surviving subject; returns null if nothing survives.
  * Pure over the source canvas.
  */
+/** Forgiveness distance for the loop gate, in px: how far past the drawn
+ *  line a selected subject may still reach before being trimmed back.
+ *  Scales with the photo so a loose phone-drawn loop isn't punished. */
+function loopForgiveness(w, h) {
+  return Math.round(Math.max(12, Math.min(36, 0.03 * Math.max(w, h))));
+}
+
+/**
+ * Distance (in px, 4-neighbor steps) from each OUTSIDE pixel to the loop's
+ * interior, capped at `maxDist` — a multi-source BFS seeded on every
+ * outside pixel adjacent to an inside one. Inside pixels get 0; outside
+ * pixels beyond the cap all get maxDist+1. O(N).
+ */
+function distanceOutside(inside, w, h, maxDist) {
+  const N = w * h;
+  const dist = new Int32Array(N).fill(maxDist + 1);
+  let queue = [];
+  for (let p = 0; p < N; p++) {
+    if (inside[p]) { dist[p] = 0; continue; }
+    const x = p % w;
+    const y = (p / w) | 0;
+    if ((x > 0 && inside[p - 1]) || (x < w - 1 && inside[p + 1]) ||
+        (y > 0 && inside[p - w]) || (y < h - 1 && inside[p + w])) {
+      dist[p] = 1;
+      queue.push(p);
+    }
+  }
+  for (let d = 1; d < maxDist && queue.length; d++) {
+    const next = [];
+    for (const q of queue) {
+      const x = q % w;
+      const y = (q / w) | 0;
+      if (x > 0 && dist[q - 1] > d + 1) { dist[q - 1] = d + 1; next.push(q - 1); }
+      if (x < w - 1 && dist[q + 1] > d + 1) { dist[q + 1] = d + 1; next.push(q + 1); }
+      if (y > 0 && dist[q - w] > d + 1) { dist[q - w] = d + 1; next.push(q - w); }
+      if (y < h - 1 && dist[q + w] > d + 1) { dist[q + w] = d + 1; next.push(q + w); }
+    }
+    queue = next;
+  }
+  return dist;
+}
+
 export function cutoutFromAlpha(srcCanvas, alpha, threshold, path = null) {
   const w = srcCanvas.width;
   const h = srcCanvas.height;
@@ -185,15 +227,36 @@ export function cutoutFromAlpha(srcCanvas, alpha, threshold, path = null) {
   const cleared = new Uint8Array(N);
   for (let p = 0; p < N; p++) if (alpha[p] < threshold) cleared[p] = 1;
 
+  let loopGate = null; // per-pixel 0..1 attenuation from the loop-forgiveness band, if tracing
   if (path) {
     const inside = rasterizePathMask(w, h, path);
     if (!inside) return null; // degenerate loop — same contract as cropToPath
     if (!keepBlobsSelectedBy(cleared, inside, w, h)) return null; // loop pointed at nothing
+    // The loop-forgiveness gate: blob selection decides WHICH things stay,
+    // but a kept blob can still drag background along with it whenever the
+    // model's mask smears past the object (very common with several things
+    // in frame — the exact "bits of background instead of the object"
+    // failure). So the loop also bounds HOW FAR anything may reach past
+    // the drawn line: up to a forgiveness distance F the overhang survives
+    // (fading toward its edge, so a line that nicks the object still keeps
+    // it whole-ish and feathered), beyond F it's trimmed. Inside the loop
+    // nothing changes — the model's mask is still what separates object
+    // from background there.
+    const F = loopForgiveness(w, h);
+    const dist = distanceOutside(inside, w, h, F);
+    loopGate = new Float32Array(N);
+    for (let p = 0; p < N; p++) {
+      const d = dist[p];
+      if (d === 0) loopGate[p] = 1;
+      else if (d > F) { loopGate[p] = 0; cleared[p] = 1; }
+      else loopGate[p] = 1 - d / (F + 1);
+    }
   }
 
   for (let p = 0; p < N; p++) {
     if (cleared[p]) continue;
-    const a = alpha[p];
+    let a = alpha[p];
+    if (loopGate) a = Math.round(a * loopGate[p]);
     if (a < data[p * 4 + 3]) data[p * 4 + 3] = a; // feathered edge, never MORE opaque than the source
   }
   despeckle(cleared, w, h);

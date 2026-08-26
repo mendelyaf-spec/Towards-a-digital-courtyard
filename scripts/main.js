@@ -423,6 +423,7 @@ if (/Mobi|Android|iPhone|iPad/.test(navigator.userAgent)) {
 // A small, deliberate window into the live layer for automated checks —
 // the canvas subsystem is otherwise entirely module-private.
 window.__layer = layer;
+window.__studio = studio;
 Object.defineProperty(window, "__items", { get: () => items });
 
 // ---------- views ----------
