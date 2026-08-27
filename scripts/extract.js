@@ -148,6 +148,58 @@ function rasterizePathMask(w, h, path) {
   return count ? inside : null;
 }
 
+/**
+ * Pick the threshold that best splits THIS mask into subject and not —
+ * Otsu's method over the mask's own histogram.
+ *
+ * Why this rather than a number: the segmenter's output is renormalized
+ * per photo, and its distribution swings wildly (a small subject on a
+ * busy ground can average near zero while peaking at 255). A fixed point
+ * on 0..255 is therefore arbitrary — on one photo it cuts sensibly, on
+ * the next it cuts everything away, which is what "the fine cut finds
+ * nothing at this setting" actually was.
+ *
+ * With a traced loop, the split is decided from the pixels INSIDE the
+ * loop only. That matters for the case this was written for: a stick on
+ * gravel, circled by a loop that unavoidably contains a lot of gravel.
+ * The question there is "which of the things in this loop is the
+ * subject", and only the loop's own pixels can answer it.
+ *
+ * Always returns a threshold with pixels on both sides, so a mask that
+ * exists can never yield an empty cut.
+ */
+export function autoThreshold(alpha, w, h, path = null) {
+  const inside = path ? rasterizePathMask(w, h, path) : null;
+  const hist = new Float64Array(256);
+  let n = 0;
+  for (let i = 0; i < alpha.length; i++) {
+    if (inside && !inside[i]) continue;
+    hist[alpha[i]]++;
+    n++;
+  }
+  if (!n) return 128;
+  let total = 0;
+  for (let t = 0; t < 256; t++) total += t * hist[t];
+  let sumB = 0;
+  let wB = 0;
+  let best = 0;
+  let bestVar = -1;
+  for (let t = 0; t < 256; t++) {
+    wB += hist[t];
+    if (!wB) continue;
+    const wF = n - wB;
+    if (!wF) break; // everything below t — no split left to try
+    sumB += t * hist[t];
+    const between = wB * wF * (sumB / wB - (total - sumB) / wF) ** 2;
+    if (between > bestVar) {
+      bestVar = between;
+      best = t;
+    }
+  }
+  // best is the last bin of the "background" class; cut just above it.
+  return Math.min(255, best + 1);
+}
+
 /** How much of a subject blob must fall inside the traced loop for that
  *  loop to count as "pointing at" it. Deliberately low: the loop says WHICH
  *  thing, so a rough circle that clips the subject's edges still selects the

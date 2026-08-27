@@ -36,7 +36,7 @@
 //     opacity still adjustable, no separate zoom/rotate left to fiddle with
 //     afterward. What you picked before placing is what you get.
 
-import { fileToCanvas, cutoutFromAlpha, cropToPath } from "./extract.js";
+import { fileToCanvas, cutoutFromAlpha, cropToPath, autoThreshold } from "./extract.js";
 import { subjectAlpha } from "../magiccut/magiccut.js";
 
 const FRAME_W = 320, FRAME_H = 240; // 'background' mode's frame size — must match
@@ -211,11 +211,17 @@ export class Studio {
   _recompute() {
     if (!this.source) return;
     const tol = Number(this.tolerance.value);
-    // Slider → mask threshold for the model path: min keeps nearly every
-    // pixel the model considers faintly subject-like, max cuts tight.
-    const aiThr = Math.round(10 + (tol / (Number(this.tolerance.max) || 120)) * 200);
     const key = this._aiKey();
     const cached = key && this._ai.key === key ? this._ai.alpha : null;
+    // The slider trims AROUND the threshold this mask chose for itself
+    // (Otsu, computed once with the mask) rather than sliding along a
+    // fixed 0..255 scale. At the slider's rest position you get exactly
+    // that auto split; dragging tightens or loosens from there. A fixed
+    // scale was the bug: the model's output is renormalized per photo, so
+    // the same number cut sensibly on one and cut everything away on the
+    // next — "the fine cut finds nothing at this setting".
+    const autoThr = cached ? this._ai.autoThr ?? 90 : 90;
+    const aiThr = Math.max(4, Math.min(250, Math.round(autoThr + (tol - 40) * 1.5)));
     this._aiActive = false;
     this.result = null;
 
@@ -226,6 +232,9 @@ export class Studio {
     } else if (this.mode === "auto") {
       if (cached) {
         this.result = cutoutFromAlpha(this.source, cached, aiThr);
+        // Slider dragged somewhere nothing survives: fall back to the
+        // mask's own split rather than to no cut at all.
+        if (!this.result && aiThr !== autoThr) this.result = cutoutFromAlpha(this.source, cached, autoThr);
         this._aiActive = !!this.result;
         // The model DID produce a mask, but nothing survives at THIS
         // threshold (possible at the high end, or for a near-featureless
@@ -247,6 +256,13 @@ export class Studio {
       const literalKeepAll = tol <= Number(this.tolerance.min);
       if (!literalKeepAll && cached) {
         this.result = cutoutFromAlpha(this.source, cached, aiThr, this.tracePath);
+        // The raw loop crop is background and all — the very thing tracing
+        // exists to avoid — so it is NOT an acceptable stand-in for a cut
+        // that came out empty. Retry at the mask's own split first; with
+        // an adaptive threshold that essentially always yields something.
+        if (!this.result && aiThr !== autoThr) {
+          this.result = cutoutFromAlpha(this.source, cached, autoThr, this.tracePath);
+        }
         this._aiActive = !!this.result;
       }
       if (!this.result) {
@@ -329,7 +345,15 @@ export class Studio {
         this._recompute();
         return;
       }
-      this._ai = { key, alpha, pending: null, failedKey: null };
+      // Computed once, with the mask, for the SAME (photo, trace) — it
+      // describes that mask's distribution, so it caches with it.
+      let autoThr = 90;
+      try {
+        autoThr = autoThreshold(alpha, source.width, source.height, path);
+      } catch (err) {
+        console.warn("Falling back to a fixed cut threshold.", err);
+      }
+      this._ai = { key, alpha, autoThr, pending: null, failedKey: null };
       this._recompute();
     })();
   }
