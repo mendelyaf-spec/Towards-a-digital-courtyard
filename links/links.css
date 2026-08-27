@@ -52,6 +52,46 @@
 }
 .link-pop__add:disabled { opacity: .6; cursor: default; }
 
+/* ---- "see it on the item" overlay (openEmbedPrompt only — needs a host
+   item with its own picture to compare against) ---- */
+.link-pop__overlay {
+  position: relative;
+  width: 100%;
+  /* aspect-ratio alone would let a very tall/narrow host item's box grow
+     unboundedly (the popover chasing off-screen); capping height instead
+     of letting it drive width is the simpler tradeoff — a rare extreme
+     aspect ratio reads slightly squashed rather than breaking layout. */
+  max-height: 220px;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #ece5d3;
+  border: 1px solid var(--line);
+}
+.link-pop__overlay-host,
+.link-pop__overlay-thumb {
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+}
+.link-pop__overlay-host { background-size: contain; } /* matches how the host photo itself renders on the canvas */
+.link-pop__overlay-thumb {
+  background-size: cover; /* matches how the real preview actually renders — see .embed-thumb-layer */
+  opacity: .5;
+  transition: opacity .15s ease;
+}
+.link-pop__overlay-thumb--empty { opacity: 0; }
+.link-pop__overlay-hint {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  margin: 0;
+  padding: 4px 8px;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #fff;
+  background: rgba(20, 18, 14, .6);
+}
+
 /* ---- custom thumbnail picker (shared by both popovers) ---- */
 .link-pop__thumb {
   display: flex;

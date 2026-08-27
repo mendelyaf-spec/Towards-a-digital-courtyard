@@ -96,8 +96,25 @@ function resizeImageFile(file, maxSize) {
   });
 }
 
-function thumbControlsHTML() {
+function thumbControlsHTML(host) {
+  // Attaching a link to an item that already has its own picture (a
+  // cut-out photo, or a note wearing one): show the two composited at 50%
+  // — the host's real shape as the base, the thumbnail you're picking laid
+  // over it exactly how it will actually render (background-size: cover,
+  // clipped to the same outline) — so you can judge its scale before
+  // saving instead of committing, checking on the canvas, and reopening
+  // this to try again. Nothing to overlay against otherwise (a rect, a
+  // plain note, brand-new links from the toolbar with no host at all), so
+  // the small icon preview below is the whole story in that case.
+  const overlay = host
+    ? `<div class="link-pop__overlay" style="aspect-ratio:${host.w}/${host.h}">
+         <div class="link-pop__overlay-host"></div>
+         <div class="link-pop__overlay-thumb"></div>
+         <p class="link-pop__overlay-hint">the item, and your picture over it at 50% — reopen "upload photo" to adjust its crop and zoom</p>
+       </div>`
+    : "";
   return `
+    ${overlay}
     <div class="link-pop__thumb">
       <div class="link-pop__thumb-preview"></div>
       <div class="link-pop__thumb-controls">
@@ -116,9 +133,18 @@ function thumbControlsHTML() {
  * open, since its controls live outside `pop`'s own DOM and would otherwise
  * be read as "clicked outside the popover, close it."
  */
-function wireThumbControls(pop, current, outsideGuard) {
+function wireThumbControls(pop, current, outsideGuard, host = null) {
   const state = { image: current?.thumbnailImage || null, text: current?.thumbnailText || null };
   const preview = pop.querySelector(".link-pop__thumb-preview");
+  const overlayHost = pop.querySelector(".link-pop__overlay-host");
+  const overlayThumb = pop.querySelector(".link-pop__overlay-thumb");
+  if (host && overlayHost) {
+    overlayHost.style.backgroundImage = `url(${host.src})`;
+    if (host.clipPath) {
+      overlayHost.style.clipPath = host.clipPath;
+      overlayThumb.style.clipPath = host.clipPath; // same outline, so the overlay reads as "on the item," not "on its box"
+    }
+  }
   const uploadBtn = pop.querySelector('[data-act="thumb-upload"]');
   const fileInput = pop.querySelector(".link-pop__thumb-file");
   const textInput = pop.querySelector(".link-pop__thumb-text");
@@ -135,6 +161,13 @@ function wireThumbControls(pop, current, outsideGuard) {
     }
     preview.classList.toggle("link-pop__thumb-preview--empty", !state.image && !state.text);
     resetBtn.hidden = !state.image && !state.text;
+    // A text label has no size to judge against the host, so the overlay
+    // only shows for a picked photo — an empty overlay box would just be
+    // confusing next to the small preview already saying "auto"/the label.
+    if (overlayThumb) {
+      overlayThumb.style.backgroundImage = state.image ? `url(${state.image})` : "";
+      overlayThumb.classList.toggle("link-pop__overlay-thumb--empty", !state.image); // CSS holds the 50%; this only shows/hides it
+    }
   };
   render();
 
@@ -194,7 +227,7 @@ export function openLinkPrompt(anchorEl, onSubmit, current = null) {
     <label class="link-pop__label">${editing ? "edit link" : "paste a link"}</label>
     <input type="text" class="link-pop__url" placeholder="https://… or a YouTube link" value="${currentUrl}" />
     <p class="link-pop__err" hidden>that doesn't look like a link</p>
-    ${thumbControlsHTML()}
+    ${thumbControlsHTML(null)}
     <div class="link-pop__actions">
       <button type="button" class="link-pop__cancel" data-act="cancel">cancel</button>
       <button type="button" class="link-pop__add" data-act="add">${editing ? "save" : "add"}</button>
@@ -272,7 +305,7 @@ export function closeLinkPrompt() {
  * @param {(embed:object)=>void} onSubmit — a full embed object, ready to store as item.embed
  * @param {()=>void} onRemove
  */
-export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
+export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove, host = null) {
   closeLinkPrompt();
   const hasExisting = !!current;
   const currentUrl = hasExisting ? (current.kind === "link" ? current.url : youtubeWatchUrl(current.videoId)) : "";
@@ -283,7 +316,7 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
     <input type="text" class="link-pop__url" placeholder="a YouTube link plays inline; any other link opens on tap" value="${currentUrl}" />
     <p class="link-pop__err" hidden>that doesn't look like a link</p>
     ${hasExisting ? '<p class="link-pop__hint">tip: this item\'s opacity slider now also reveals its preview</p>' : ""}
-    ${thumbControlsHTML()}
+    ${thumbControlsHTML(host)}
     <div class="link-pop__actions" style="justify-content:space-between;">
       ${hasExisting ? '<button type="button" class="link-pop__remove" data-act="remove">remove</button>' : "<span></span>"}
       <span style="display:flex; gap:8px;">
@@ -305,7 +338,7 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove) {
   const err = pop.querySelector(".link-pop__err");
   const addBtn = pop.querySelector('[data-act="add"]');
   const outsideGuard = { suspended: false };
-  const getThumbOverride = wireThumbControls(pop, current, outsideGuard);
+  const getThumbOverride = wireThumbControls(pop, current, outsideGuard, host);
   input.focus();
 
   const submit = async () => {

@@ -1481,6 +1481,15 @@ export class ItemLayer {
       const item = this._get(this.selected);
       if (!item) return;
       const { openEmbedPrompt } = await import("../links/links.js");
+      // A host to preview against — only when this item actually has its
+      // own picture to superimpose the new thumbnail over (a cut-out
+      // photo, or a note wearing one). The clip-path is read straight off
+      // the item's own already-rendered element rather than recomputed:
+      // it's guaranteed to match exactly what's on screen right now, no
+      // second silhouette trace needed.
+      const hostSrc = item.type === "image" ? item.src : item.type === "text" ? item.shapeSrc : null;
+      const hostEl = hostSrc && this.nodes.get(item.id)?.querySelector(".item--image__clip, .text-card");
+      const host = hostSrc ? { src: hostSrc, w: item.w, h: item.h, clipPath: hostEl?.style.clipPath || null } : null;
       openEmbedPrompt(
         anchorEl,
         item.embed || null,
@@ -1502,7 +1511,8 @@ export class ItemLayer {
           delete item.embed;
           save();
           this._reRender(item);
-        }
+        },
+        host
       );
     });
     this.bar.querySelector('[data-act="clipshape"]').addEventListener("click", (e) => {
