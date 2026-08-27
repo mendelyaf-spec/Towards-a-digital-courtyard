@@ -121,7 +121,7 @@ function thumbControlsHTML(host) {
         <button type="button" class="link-pop__thumb-btn" data-act="thumb-upload">upload photo</button>
         <input type="file" accept="image/*" class="link-pop__thumb-file" hidden />
         <input type="text" class="link-pop__thumb-text" placeholder="or type a label" maxlength="40" />
-        <button type="button" class="link-pop__thumb-btn link-pop__thumb-reset" data-act="thumb-reset" hidden>use default</button>
+        <button type="button" class="link-pop__thumb-btn link-pop__thumb-reset" data-act="thumb-reset" hidden>remove photo</button>
       </div>
     </div>`;
 }
@@ -161,6 +161,11 @@ function wireThumbControls(pop, current, outsideGuard, host = null) {
     }
     preview.classList.toggle("link-pop__thumb-preview--empty", !state.image && !state.text);
     resetBtn.hidden = !state.image && !state.text;
+    // Says exactly what it's about to do — a custom PHOTO is what people
+    // actually go looking to remove; "use default" read as a vague reset
+    // and didn't say the link itself survives untouched.
+    resetBtn.textContent = state.image ? "remove photo" : state.text ? "remove label" : "remove photo";
+    resetBtn.title = "Back to the link's own preview — the link itself stays";
     // A text label has no size to judge against the host, so the overlay
     // only shows for a picked photo — an empty overlay box would just be
     // confusing next to the small preview already saying "auto"/the label.
