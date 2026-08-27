@@ -92,6 +92,36 @@
   background: rgba(20, 18, 14, .6);
 }
 
+/* ---- preview shape (openEmbedPrompt only — needs the overlay above it) ---- */
+.link-pop__shapes {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.link-pop__shapes-label {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-faint, #9a927a);
+}
+.link-pop__shapes-row {
+  display: flex;
+  gap: 4px;
+}
+.link-pop__shape-opt {
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  width: 28px; height: 28px;
+  border-radius: 50%;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.link-pop__shape-opt:hover { background: rgba(176, 125, 75, .1); }
+.link-pop__shape-opt.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+
 /* ---- custom thumbnail picker (shared by both popovers) ---- */
 .link-pop__thumb {
   display: flex;

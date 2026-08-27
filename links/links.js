@@ -8,6 +8,7 @@
 // mostly wouldn't work; a bookmark-style card always does.
 
 import { parseYouTubeId, youtubeThumbnail, youtubeWatchUrl, fetchYouTubeTitle } from "../youtube/youtube.js";
+import { alphaClipPath } from "../scripts/silhouette.js";
 
 export function normalizeUrl(input) {
   let s = (input || "").trim();
@@ -96,21 +97,54 @@ function resizeImageFile(file, maxSize) {
   });
 }
 
+// What shape a buried link's preview takes — only ever meaningful in this
+// popover (an item that isn't carrying a link has nothing to shape), so
+// picking it lives entirely here rather than as a separate item-bar trip.
+// "a photo" sits right after "outline": they're the two silhouette
+// options, ahead of the geometric ones.
+const CLIP_SHAPES = [
+  ["own", "🍃", "outline"],
+  ["photo", "🖼", "a photo"],
+  ["circle", "◯", "circle"],
+  ["rounded", "▢", "rounded"],
+  ["box", "▭", "box"],
+];
+
+/** The shape stored on an embed, read the same way for a brand-new pick
+ *  (defaults to "own" — the host's outline is the sensible starting point
+ *  whenever there's a host to take it from) as for one already saved
+ *  (older items only carry the clipToShape boolean). */
+function initialClipShape(current) {
+  if (!current) return "own";
+  if (current.clipShape) return current.clipShape;
+  return current.clipToShape === false ? "box" : "own";
+}
+
 function thumbControlsHTML(host) {
   // Attaching a link to an item that already has its own picture (a
   // cut-out photo, or a note wearing one): show the two composited at 50%
   // — the host's real shape as the base, the thumbnail you're picking laid
   // over it exactly how it will actually render (background-size: cover,
-  // clipped to the same outline) — so you can judge its scale before
-  // saving instead of committing, checking on the canvas, and reopening
-  // this to try again. Nothing to overlay against otherwise (a rect, a
-  // plain note, brand-new links from the toolbar with no host at all), so
-  // the small icon preview below is the whole story in that case.
+  // clipped to whatever shape you've chosen below) — so you can judge its
+  // scale before saving instead of committing, checking on the canvas, and
+  // reopening this to try again. Nothing to overlay against otherwise (a
+  // rect, a plain note, brand-new links from the toolbar with no host at
+  // all), so the small icon preview below is the whole story in that case
+  // — and there's no shape to choose either, for the same reason.
   const overlay = host
     ? `<div class="link-pop__overlay" style="aspect-ratio:${host.w}/${host.h}">
          <div class="link-pop__overlay-host"></div>
          <div class="link-pop__overlay-thumb"></div>
          <p class="link-pop__overlay-hint">the item, and your picture over it at 50% — reopen "upload photo" to adjust its crop and zoom</p>
+       </div>
+       <div class="link-pop__shapes">
+         <span class="link-pop__shapes-label">preview shape</span>
+         <div class="link-pop__shapes-row">
+           ${CLIP_SHAPES.map(([id, glyph, label]) =>
+             `<button type="button" class="link-pop__shape-opt" data-shape="${id}" title="${label}"><span>${glyph}</span></button>`
+           ).join("")}
+         </div>
+         <input type="file" accept="image/*" class="link-pop__shape-file" hidden />
        </div>`
     : "";
   return `
@@ -124,6 +158,81 @@ function thumbControlsHTML(host) {
         <button type="button" class="link-pop__thumb-btn link-pop__thumb-reset" data-act="thumb-reset" hidden>remove photo</button>
       </div>
     </div>`;
+}
+
+/**
+ * Wires the "preview shape" row inside openEmbedPrompt's popover — only
+ * called when there's a host to shape against. Returns a getter for the
+ * chosen { clipShape, clipShapeSrc }.
+ */
+function wireShapeControls(pop, current, outsideGuard, host) {
+  if (!host) return () => ({});
+  const state = { shape: initialClipShape(current), src: current?.clipShapeSrc || null, clipPath: null };
+  const overlayThumb = pop.querySelector(".link-pop__overlay-thumb");
+  const opts = [...pop.querySelectorAll(".link-pop__shape-opt")];
+  const fileInput = pop.querySelector(".link-pop__shape-file");
+
+  const paint = () => {
+    for (const b of opts) b.classList.toggle("is-on", b.dataset.shape === state.shape);
+    overlayThumb.style.clipPath = "";
+    overlayThumb.style.borderRadius = "";
+    if (state.shape === "circle") overlayThumb.style.clipPath = "circle(50% at 50% 50%)";
+    else if (state.shape === "rounded") overlayThumb.style.borderRadius = "18%";
+    else if (state.shape === "own" && host.clipPath) overlayThumb.style.clipPath = host.clipPath;
+    else if (state.shape === "photo" && state.clipPath) overlayThumb.style.clipPath = state.clipPath;
+    // "box" (and "photo" before its own trace has resolved) leaves both
+    // cleared — a plain rectangle, same as the real preview would show.
+  };
+  paint();
+
+  for (const btn of opts) {
+    btn.addEventListener("click", () => {
+      if (btn.dataset.shape !== "photo") {
+        state.shape = btn.dataset.shape;
+        paint();
+        return;
+      }
+      // "a photo" is an action, not a plain toggle — even re-clicking it
+      // while already selected re-opens the picker, since the whole point
+      // is choosing (or changing) WHICH photo.
+      fileInput.value = "";
+      fileInput.click();
+    });
+  }
+  fileInput.addEventListener("change", async () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = "";
+    if (!file) return;
+    if (outsideGuard) outsideGuard.suspended = true;
+    try {
+      const edited = editPhotoHook ? await editPhotoHook(file) : null;
+      if (editPhotoHook && !edited) return; // canceled out of the studio — leave the previous shape choice alone
+      const src = edited || (await resizeImageFile(file, THUMB_MAX));
+      state.shape = "photo";
+      state.src = src;
+      state.clipPath = null; // traced below — a plain rectangle is the honest interim, never a wrong-looking guess
+      paint();
+      // The overlay's own accuracy depends on the real silhouette, not
+      // just the picked photo's bounding box — trace it the same way a
+      // cut-out photo or a shaped note already does. Guard against a
+      // stale trace landing after the picker moved on (another shape
+      // picked meanwhile, or a different photo re-picked).
+      const tracing = src;
+      const clipPath = await alphaClipPath(src).catch(() => null);
+      if (state.shape !== "photo" || state.src !== tracing) return;
+      state.clipPath = clipPath;
+      paint();
+    } catch {
+      alert("Couldn't use that image.");
+    } finally {
+      if (outsideGuard) outsideGuard.suspended = false;
+    }
+  });
+
+  return () => ({
+    clipShape: state.shape,
+    ...(state.shape === "photo" && state.src ? { clipShapeSrc: state.src } : {}),
+  });
 }
 
 /**
@@ -344,6 +453,7 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove, host = nu
   const addBtn = pop.querySelector('[data-act="add"]');
   const outsideGuard = { suspended: false };
   const getThumbOverride = wireThumbControls(pop, current, outsideGuard, host);
+  const getShapeOverride = wireShapeControls(pop, current, outsideGuard, host);
   input.focus();
 
   const submit = async () => {
@@ -357,17 +467,21 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove, host = nu
       addBtn.textContent = "save";
       return;
     }
-    // Preserve an existing preview reveal/opacity/clip-mode when just
-    // changing the link itself; otherwise start hidden, as a freshly-buried
-    // link should.
+    // Preserve an existing preview reveal/opacity when just changing the
+    // link itself; otherwise start hidden, as a freshly-buried link should.
     const showThumbnail = hasExisting ? current.showThumbnail ?? false : false;
     const thumbnailOpacity = hasExisting ? current.thumbnailOpacity ?? 1 : 1;
-    const clipToShape = hasExisting ? !!current.clipToShape : false;
     const thumbOverride = getThumbOverride();
+    // clipShape is the picker's own call now, decided (with its sensible
+    // default) inside wireShapeControls — this old boolean stays alongside
+    // it, kept truthful, purely so anything that hasn't been touched since
+    // before clipShape existed still reads correctly.
+    const shapeOverride = getShapeOverride();
+    const clipToShape = shapeOverride.clipShape ? shapeOverride.clipShape !== "box" : hasExisting ? !!current.clipToShape : false;
     const embed =
       link.kind === "youtube"
-        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail, thumbnailOpacity, clipToShape, ...thumbOverride }
-        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail, thumbnailOpacity, clipToShape, ...thumbOverride };
+        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail, thumbnailOpacity, clipToShape, ...thumbOverride, ...shapeOverride }
+        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail, thumbnailOpacity, clipToShape, ...thumbOverride, ...shapeOverride };
     onSubmit(embed);
     closeLinkPrompt();
   };

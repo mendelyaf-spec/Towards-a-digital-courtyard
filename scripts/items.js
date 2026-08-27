@@ -51,16 +51,11 @@ function scrollCaretIntoView(container) {
 
 // The shape a buried link's preview takes. Stored as embed.clipShape;
 // older items only have the clipToShape boolean, so read through this —
-// true meant "the photo's own outline", false meant "the whole box".
-const EMBED_SHAPES = [
-  // "from a photo" sits right after "the photo's outline": they're the two
-  // silhouette options, so they belong together, ahead of the geometric ones.
-  ["own", "🍃", "the photo's outline"],
-  ["photo", "🖼", "from a photo…"],
-  ["circle", "◯", "circle"],
-  ["rounded", "▢", "rounded"],
-  ["box", "▭", "full box"],
-];
+// true meant "the photo's own outline", false meant "the whole box". The
+// picker itself lives in links.js's add/edit-link popover now — choosing
+// a shape only ever matters in the context of a link's preview, so it
+// moved in with everything else about that preview instead of being a
+// second, separate item-bar trip.
 function embedClipShape(embed) {
   if (!embed) return "box";
   if (embed.clipShape) return embed.clipShape;
@@ -115,7 +110,6 @@ export class ItemLayer {
     this.onSendToPocket = null;    // hook: async(item) -> boolean — true if the pocket accepted it
     this.onOpenLink = null;        // hook: (url, title) -> void — opens the in-app browser, if wired
     this.onPickNoteShape = null;   // hook: (item) -> void — pick a photo whose cutout becomes this note's shape
-    this.onPickEmbedShape = null;  // hook: (item) -> void — pick a photo whose cutout becomes its link preview's shape
     this.onReadNote = null;        // hook: (item) -> void — open a note for reading
     this._activeEmbed = null;      // { item, stop() } for whichever embed is currently playing, if any
 
@@ -188,7 +182,6 @@ export class ItemLayer {
       this.select(null);
       this.drawMode = false;
       this.closeTimedNotes();
-      this.closeEmbedShapePicker();
       this.endConnect();
     }
     this.onLockChange?.(locked);
@@ -1392,18 +1385,6 @@ export class ItemLayer {
     const embedBtn = this.bar.querySelector('[data-act="embed"]');
     embedBtn.classList.toggle("is-on", !!item?.embed);
     embedBtn.textContent = item?.embed ? "🔗 edit / remove link" : "🔗 attach link";
-
-    // Only makes sense once there's both a buried link AND an actual photo
-    // outline to clip its preview to.
-    const clipBtn = this.bar.querySelector('[data-act="clipshape"]');
-    const showClip = !!item?.embed && item?.type === "image";
-    clipBtn.style.display = showClip ? "" : "none";
-    if (showClip) {
-      const shape = embedClipShape(item.embed);
-      const label = EMBED_SHAPES.find(([id]) => id === shape)?.[2] || "shape";
-      clipBtn.textContent = `🍃 preview: ${shape === "photo" ? "a photo's shape" : label}`;
-      clipBtn.classList.toggle("is-on", shape !== "box");
-    }
     this._reflectConnectState();
     this.positionBar();
   }
@@ -1495,13 +1476,9 @@ export class ItemLayer {
         item.embed || null,
         (embed) => {
           pushUndoSnapshot();
-          // A photo that's been cut to a shape should wear its link's
-          // preview in THAT shape, not as a rectangle sitting over the
-          // object — so clip-to-shape starts on for a photo (and only a
-          // photo: nothing else has an irregular outline to clip to).
-          // Only for a NEW link; editing an existing one keeps whatever
-          // you'd already chosen. Still toggleable in the item bar.
-          if (!item.embed && item.type === "image" && item.src) embed.clipShape = "own";
+          // The shape itself (including its own sensible default — "the
+          // photo's own outline" for a fresh link on a photo) is entirely
+          // links.js's call now; embed.clipShape arrives already decided.
           item.embed = embed;
           save();
           this._reRender(item);
@@ -1514,10 +1491,6 @@ export class ItemLayer {
         },
         host
       );
-    });
-    this.bar.querySelector('[data-act="clipshape"]').addEventListener("click", (e) => {
-      const item = this._get(this.selected);
-      if (item?.embed) this.openEmbedShapePicker(item, e.currentTarget);
     });
   }
 
@@ -1662,11 +1635,19 @@ export class ItemLayer {
     if (shape === "box") return;
     if (shape === "circle") { el.style.clipPath = "circle(50% at 50% 50%)"; return; }
     if (shape === "rounded") { el.style.borderRadius = "18%"; return; }
-    // "own" borrows the host photo's own alpha; "photo" borrows a cutout
-    // you picked. Either way it's an image used as a mask, sized the same
-    // way the host photo itself is drawn (contain, centred) so the two
-    // line up.
-    const src = shape === "photo" ? item.embed?.clipShapeSrc : item.type === "image" ? item.src : null;
+    // "own" borrows the host's own alpha — the photo itself for an image
+    // item, or its shape photo for a note wearing one; "photo" borrows a
+    // cutout picked specifically for this preview. Either way it's an
+    // image used as a mask, sized the same way the host is drawn (contain,
+    // centred) so the two line up.
+    const src =
+      shape === "photo"
+        ? item.embed?.clipShapeSrc
+        : item.type === "image"
+          ? item.src
+          : item.type === "text"
+            ? item.shapeSrc
+            : null;
     if (!src) return;
     el.style.maskImage = el.style.webkitMaskImage = `url(${src})`;
     el.style.maskSize = el.style.webkitMaskSize = "contain";
@@ -1674,61 +1655,10 @@ export class ItemLayer {
     el.style.maskPosition = el.style.webkitMaskPosition = "center";
   }
 
-  /** Set the shape a buried link's preview takes. `src` only matters for
-   *  the "photo" shape (the cutout whose silhouette becomes the mask). */
-  setEmbedShape(item, shape, src = null) {
-    if (!item?.embed) return;
-    pushUndoSnapshot();
-    item.embed.clipShape = shape;
-    if (shape === "photo" && src) item.embed.clipShapeSrc = src;
-    if (shape !== "photo") delete item.embed.clipShapeSrc;
-    // Keep the old boolean truthful for anything still reading it.
-    item.embed.clipToShape = shape !== "box";
-    save();
-    this._applyEmbedThumb(this.nodes.get(item.id), item);
-    this._showBar();
-  }
-
-  /** The little menu of shapes, anchored to the item-bar button. */
-  openEmbedShapePicker(item, anchorEl) {
-    this.closeEmbedShapePicker();
-    const pop = document.createElement("div");
-    pop.className = "embed-shape-pop";
-    const current = embedClipShape(item.embed);
-    for (const [id, glyph, label] of EMBED_SHAPES) {
-      // "the photo's outline" only exists when the host IS a photo.
-      if (id === "own" && !(item.type === "image" && item.src)) continue;
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "embed-shape-pop__opt" + (id === current ? " is-on" : "");
-      btn.innerHTML = `<span class="embed-shape-pop__glyph">${glyph}</span><span>${label}</span>`;
-      btn.addEventListener("click", () => {
-        this.closeEmbedShapePicker();
-        if (id === "photo") this.onPickEmbedShape?.(item);
-        else this.setEmbedShape(item, id);
-      });
-      pop.appendChild(btn);
-    }
-    document.body.appendChild(pop);
-    const r = anchorEl.getBoundingClientRect();
-    const h = pop.offsetHeight || 200;
-    let top = r.bottom + 8;
-    if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 8);
-    pop.style.left = Math.min(Math.max(r.left, 8), window.innerWidth - (pop.offsetWidth || 190) - 8) + "px";
-    pop.style.top = top + "px";
-    const onOutside = (e) => {
-      if (!pop.contains(e.target) && e.target !== anchorEl) this.closeEmbedShapePicker();
-    };
-    setTimeout(() => document.addEventListener("pointerdown", onOutside), 0);
-    this._embedShapePop = { el: pop, cleanup: () => document.removeEventListener("pointerdown", onOutside) };
-  }
-
-  closeEmbedShapePicker() {
-    if (!this._embedShapePop) return;
-    this._embedShapePop.cleanup();
-    this._embedShapePop.el.remove();
-    this._embedShapePop = null;
-  }
+  // A buried link's preview shape is chosen entirely in links.js's add/
+  // edit-link popover now, alongside the thumbnail photo itself — it only
+  // ever mattered in that context, so it no longer needs its own separate
+  // item-bar button and popover.
 
   // Clone an item — everything about it (color, opacity, strokes, location,
   // embed…) except its id and position, offset a little so the copy is

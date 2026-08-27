@@ -102,39 +102,26 @@ for (const btn of document.querySelectorAll(".tool[data-shape]")) {
 // so "from my computer/camera" is one control rather than a choice we'd
 // have to invent a dialog for.
 const noteShapeUpload = document.getElementById("noteShapeUpload");
-// One image input serves two askers — a note's own shape, and the shape a
-// buried link's preview takes — so a pending pick records which asked.
-let shapePickTarget = null; // { kind: "note" } | { kind: "embed", item }
 
 layer.onPickNoteShape = () => {
-  shapePickTarget = { kind: "note" };
   noteShapeUpload.value = "";
   noteShapeUpload.click();
 };
 
 async function useAsNoteShape(file) {
   if (!file) return;
-  const target = shapePickTarget;
-  shapePickTarget = null;
   await studio.open(
     file,
-    (dataURL) => {
-      if (target?.kind === "embed") layer.setEmbedShape(target.item, "photo", dataURL);
-      else layer.setNoteShapeImage(dataURL);
-    },
+    (dataURL) => layer.setNoteShapeImage(dataURL),
     null,
     { position: "item", placeLabel: "use this shape" }
   );
 }
 noteShapeUpload.addEventListener("change", (e) => useAsNoteShape(e.target.files?.[0]));
-
-// The same idea for a buried link's preview: pick any photo, cut it out,
-// and its silhouette becomes the shape the preview takes.
-layer.onPickEmbedShape = (item) => {
-  shapePickTarget = { kind: "embed", item };
-  noteShapeUpload.value = "";
-  noteShapeUpload.click();
-};
+// A buried link's own preview-shape picking (including its own "from a
+// photo…" option) now lives entirely inside links.js's add/edit-link
+// popover, with its own hidden file input — it never needed to share
+// this one, and doing so would have coupled two otherwise-unrelated flows.
 
 // Reading a note: its words open large and legible — the same "open it and
 // read it" the in-app browser gives a link — while it stays whatever shape
