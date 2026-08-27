@@ -70,6 +70,13 @@ export function setPhotoEditor(fn) {
   editPhotoHook = fn;
 }
 
+/** The { aspect, clipPath } payload editPhotoHook expects, built from an
+ *  openEmbedPrompt host — null when there's nothing to fit against (an
+ *  item with no picture of its own), so an ordinary un-shaped crop stands. */
+function hostPayload(host) {
+  return host ? { aspect: { w: host.w, h: host.h }, clipPath: host.clipPath || null } : null;
+}
+
 function resizeImageSrc(src, maxSize) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -205,7 +212,7 @@ function wireShapeControls(pop, current, outsideGuard, host) {
     if (!file) return;
     if (outsideGuard) outsideGuard.suspended = true;
     try {
-      const edited = editPhotoHook ? await editPhotoHook(file) : null;
+      const edited = editPhotoHook ? await editPhotoHook(file, hostPayload(host)) : null;
       if (editPhotoHook && !edited) return; // canceled out of the studio — leave the previous shape choice alone
       const src = edited || (await resizeImageFile(file, THUMB_MAX));
       state.shape = "photo";
@@ -293,9 +300,12 @@ function wireThumbControls(pop, current, outsideGuard, host = null) {
     if (outsideGuard) outsideGuard.suspended = true;
     try {
       // Route through the same cut-out studio as any other photo upload —
-      // background removal, adjustable tolerance — when it's wired up;
-      // whatever comes back still gets capped down to thumbnail size.
-      const edited = editPhotoHook ? await editPhotoHook(file) : null;
+      // background removal, adjustable tolerance, and (when there's a
+      // host to fit against) a crop frame shaped like the item itself,
+      // defaulting to showing the whole photo rather than cropping it —
+      // when it's wired up; whatever comes back still gets capped down to
+      // thumbnail size.
+      const edited = editPhotoHook ? await editPhotoHook(file, hostPayload(host)) : null;
       if (editPhotoHook && !edited) return; // canceled out of the studio — leave the existing thumbnail alone
       state.image = edited ? await resizeImageSrc(edited, THUMB_MAX) : await resizeImageFile(file, THUMB_MAX);
       state.text = null;

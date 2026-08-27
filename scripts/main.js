@@ -41,19 +41,23 @@ const framePicker = new FramePicker();
 const inAppBrowser = new InAppBrowser();
 const docViewer = new DocViewer();
 
-// A thumbnail photo (for a link's preview) gets to choose its crop/zoom/
-// rotate before it's used, same as any other photo — but skips subject
-// extraction entirely (skipCutout): pulling a shape out of its background
-// only makes sense for something going onto the canvas as its own object,
-// not a small preview image where the whole point is showing the photo
-// (or screenshot) as it actually is.
+// A thumbnail photo (for a link's preview, or a link's chosen shape) gets
+// to choose its crop/zoom/rotate before it's used, same as any other
+// photo — but skips subject extraction entirely (skipCutout): pulling a
+// shape out of its background only makes sense for something going onto
+// the canvas as its own object, not a small preview image where the whole
+// point is showing the photo (or screenshot) as it actually is. `host`,
+// when links.js has an item to fit against, carries its aspect ratio and
+// real outline through to stage 2's frame — see studio.js's open().
 setPhotoEditor(
-  (file) =>
+  (file, host) =>
     new Promise((resolve) => {
       studio.open(file, (dataURL) => resolve(dataURL), () => resolve(null), {
         position: "item",
         placeLabel: "use this photo",
         skipCutout: true,
+        hostAspect: host?.aspect || null,
+        hostClipPath: host?.clipPath || null,
       });
     })
 );

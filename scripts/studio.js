@@ -141,18 +141,27 @@ export class Studio {
     this._wireFrameDrag();
   }
 
-  /** @param {{position?: 'background'|'item', placeLabel?: string, skipCutout?: boolean}} opts
+  /** @param {{position?: 'background'|'item', placeLabel?: string, skipCutout?: boolean,
+   *  hostAspect?: {w:number,h:number}, hostClipPath?: string}} opts
    *  skipCutout — for a thumbnail: pulling a subject's SHAPE out of its
    *  background makes no sense for a small preview photo (there's nothing
    *  to "cut out" of a screenshot), so this bypasses stage 1 entirely and
    *  goes straight to stage 2 with the photo exactly as uploaded — only
-   *  cropping/zooming/rotating is offered, never subject extraction. */
-  async open(file, onPlace, onCancel, { position = "item", placeLabel, skipCutout = false } = {}) {
+   *  cropping/zooming/rotating is offered, never subject extraction.
+   *  hostAspect/hostClipPath — 'item' mode only: when this photo is going
+   *  to sit ON something else (a link's thumbnail, or a note/photo's
+   *  preview shape), stage 2's frame takes THAT item's own aspect ratio
+   *  and outline instead of the uploaded photo's own — so what you crop
+   *  is a real preview of how it'll composite, not a proxy shaped by
+   *  whatever photo you happened to pick. */
+  async open(file, onPlace, onCancel, { position = "item", placeLabel, skipCutout = false, hostAspect = null, hostClipPath = null } = {}) {
     this.onPlace = onPlace;
     this.onCancel = onCancel || null;
     this.positionMode = position;
     this.placeLabel = placeLabel || (position === "background" ? "paste on canvas" : "place on canvas");
     this._skipCutout = skipCutout;
+    this._hostAspect = position === "item" ? hostAspect : null; // never carries into 'background' mode, which has its own fixed frame
+    this._hostClipPath = position === "item" ? hostClipPath : null;
     try {
       this.source = await fileToCanvas(file);
     } catch (err) {
@@ -530,25 +539,57 @@ export class Studio {
   _toPosition() {
     if (!this.onPlace) return this.close();
     if (!this.result) return; // trace mode with nothing drawn yet — the button is disabled, but never close-and-lose here
-    this.pos = { scale: 1, rotate: 0, offsetX: 0, offsetY: 0 };
-    this.zoomInput.value = 100;
     this.rotateInput.value = 0;
     if (this.positionMode === "background") {
       this.frameNativeW = FRAME_W;
       this.frameNativeH = FRAME_H;
+    } else if (this._hostAspect) {
+      // Fit inside what this photo is actually going ONTO — the host
+      // item's own aspect ratio, not the photo's.
+      const ratio = this._hostAspect.w / this._hostAspect.h;
+      this.frameNativeW = ratio >= 1 ? BAKE_MAX : Math.round(BAKE_MAX * ratio);
+      this.frameNativeH = ratio >= 1 ? Math.round(BAKE_MAX / ratio) : BAKE_MAX;
     } else {
-      // Match the cutout's own aspect ratio — an organic cutout's shape
-      // matters (a tall leaf needs a tall frame), unlike a background
-      // region which is always the same fixed rectangle.
+      // No host to match (an ordinary photo becoming its own free-standing
+      // item): match the cutout's own aspect ratio instead — an organic
+      // cutout's shape matters (a tall leaf needs a tall frame), unlike a
+      // background region which is always the same fixed rectangle.
       const ratio = this.result.width / this.result.height;
       this.frameNativeW = ratio >= 1 ? BAKE_MAX : Math.round(BAKE_MAX * ratio);
       this.frameNativeH = ratio >= 1 ? Math.round(BAKE_MAX / ratio) : BAKE_MAX;
     }
     this.frame.style.aspectRatio = `${this.frameNativeW} / ${this.frameNativeH}`;
+    // The frame's own real outline, not just its bounding rectangle, when
+    // there's an actual silhouette to take it from — cleared otherwise so
+    // a PRIOR host-shaped open() can't leak its outline into this one.
+    this.frame.style.clipPath = this._hostClipPath || "";
     this.frameImg.src = this.result.toDataURL("image/png");
     this.cutoutStage.hidden = true;
     this.positionStage.hidden = false;
     this.frameScale = (this.frame.clientWidth || this.frameNativeW) / this.frameNativeW;
+    // #studioFrameImg is object-fit:cover, so scale:1 crops to FILL the
+    // frame. When the frame's shape doesn't already match the photo's own
+    // (any time hostAspect differs from it — always true for a photo
+    // landing on a differently-shaped item), that default would silently
+    // crop the photo before you've even seen it. Start at the scale that
+    // makes cover's result equal what contain would show instead — the
+    // whole photo, nothing clipped — by dividing contain's fit factor by
+    // cover's: ordinary same-shape photos (contain === cover there) land
+    // on exactly 1, unchanged from before. Floored to the slider's own
+    // minimum so the displayed value and the applied scale never desync.
+    const coverK = Math.max(this.frameNativeW / this.result.width, this.frameNativeH / this.result.height);
+    const containK = Math.min(this.frameNativeW / this.result.width, this.frameNativeH / this.result.height);
+    const initialScale = containK / coverK;
+    // The slider's own declared floor (15%) is a sane default, but a photo
+    // shaped very differently from its host can genuinely need to go
+    // smaller to show the whole thing uncropped — CLAMPING the scale up to
+    // that floor (rather than widening the floor to fit) would silently
+    // force exactly the crop this default exists to avoid. Widen it only
+    // as far as this specific photo/host pairing actually needs, then
+    // reset it back to the sane default on every other open.
+    this.zoomInput.min = String(Math.min(15, Math.floor(initialScale * 100)));
+    this.pos = { scale: initialScale, rotate: 0, offsetX: 0, offsetY: 0 };
+    this.zoomInput.value = Math.round(initialScale * 100);
     this._setPreviewing(false);
     this._renderFrame();
   }
@@ -560,7 +601,9 @@ export class Studio {
     this.posNextBtn.textContent = on ? this.placeLabel : "preview →";
     this.positionHint.textContent = on
       ? "This is exactly what you're about to place. Go back to adjust it more, or use it as is."
-      : "Drag the photo to reposition it, zoom and rotate to choose what shows.";
+      : this._hostAspect
+        ? "Shaped to the item you're attaching this to — the whole photo fits inside it to start. Drag, zoom, or rotate to choose what shows."
+        : "Drag the photo to reposition it, zoom and rotate to choose what shows.";
   }
 
   _renderFrame() {
