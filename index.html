@@ -158,11 +158,19 @@
       <button id="docViewerClose" class="docviewer__close" type="button" aria-label="Close and return to the canvas">‹</button>
       <span id="docViewerTitle" class="docviewer__title"></span>
       <p id="docViewerHint" class="docviewer__hint"></p>
+      <div id="docViewerZoom" class="docviewer__zoom" hidden>
+        <button id="docViewerZoomOut" type="button" title="Zoom out" aria-label="Zoom out">−</button>
+        <span id="docViewerZoomLabel">100%</span>
+        <button id="docViewerZoomIn" type="button" title="Zoom in" aria-label="Zoom in">+</button>
+      </div>
     </div>
     <div class="docviewer__body">
       <div id="docViewerPages" class="docviewer__pages"></div>
       <div id="docViewerMargin" class="docviewer__margin"></div>
     </div>
+    <!-- Shown near a fresh selection; highlighting alone doesn't create a
+         note — this is the one thing that does. -->
+    <button id="docViewerAddNote" class="docviewer__addnote" type="button" hidden>+ add note</button>
   </div>
 
   <!-- In-app browser: opens a link without leaving the mosaic behind -->

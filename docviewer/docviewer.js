@@ -20,6 +20,11 @@
 
 import { getDocAnnotations, setDocAnnotations } from "../pocket/pocket.js";
 
+const DEFAULT_PDF_SCALE = 1.35; // PDF.js render scale shown to you as "100%"
+const MIN_PDF_SCALE = 0.6;
+const MAX_PDF_SCALE = 3.5;
+const ZOOM_STEP = 1.2;
+
 let pdfLoading = null;
 
 function loadPdfJs() {
@@ -120,25 +125,50 @@ export class DocViewer {
     this.titleEl = document.getElementById("docViewerTitle");
     this.pagesEl = document.getElementById("docViewerPages");
     this.marginEl = document.getElementById("docViewerMargin");
+    this.bodyEl = document.querySelector(".docviewer__body");
     this.closeBtn = document.getElementById("docViewerClose");
     this.hintEl = document.getElementById("docViewerHint");
+    this.addNoteBtn = document.getElementById("docViewerAddNote");
+    this.zoomEl = document.getElementById("docViewerZoom");
+    this.zoomOutBtn = document.getElementById("docViewerZoomOut");
+    this.zoomInBtn = document.getElementById("docViewerZoomIn");
+    this.zoomLabelEl = document.getElementById("docViewerZoomLabel");
 
     this.recordId = null;
     this.annotations = [];
     this.pages = []; // { el, textEl, text }
     this._token = 0; // bumped per open, so a slow render for a closed/replaced doc bails
+    this._pdfDoc = null; // the loaded PDF.js document — kept around so zooming re-renders, not re-parses
+    this._pdfjsLib = null;
+    this.pdfScale = DEFAULT_PDF_SCALE;
+    this._pending = null; // { page, start, end, text } — a selection waiting on "+ add note"
 
     this.closeBtn.addEventListener("click", () => this.close());
     this.el.addEventListener("pointerdown", (e) => {
       if (e.target === this.el) this.close();
+      // Any press elsewhere — including starting a new selection — retires
+      // an unclaimed one rather than leaving a stale button floating.
+      if (e.target !== this.addNoteBtn) this._hideAddNote();
     });
     document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && !this.el.hidden && !this._editingNote()) this.close();
+      if (e.key !== "Escape" || this.el.hidden) return;
+      if (this._pending) { this._hideAddNote(); return; }
+      if (!this._editingNote()) this.close();
     });
 
-    // Selecting inside a page offers to highlight it.
+    // Selecting inside a page offers to highlight it — offers, doesn't do
+    // it: this only arms the "+ add note" button near the selection.
     this.pagesEl.addEventListener("mouseup", () => this._onSelection());
     this.pagesEl.addEventListener("touchend", () => setTimeout(() => this._onSelection(), 0));
+    this.addNoteBtn.addEventListener("click", () => this._commitAddNote());
+
+    this.zoomOutBtn.addEventListener("click", () => this._setZoom(1 / ZOOM_STEP));
+    this.zoomInBtn.addEventListener("click", () => this._setZoom(ZOOM_STEP));
+
+    // The button's position is a snapshot (position:fixed, captured once
+    // from the selection's own rect) — scrolling would leave it floating
+    // over the wrong passage, so it just retires instead of tracking.
+    this.bodyEl.addEventListener("scroll", () => this._hideAddNote(), { passive: true });
   }
 
   _editingNote() {
@@ -157,6 +187,9 @@ export class DocViewer {
     this.recordId = null;
     this.annotations = [];
     this.pages = [];
+    this._pdfDoc = null;
+    this._hideAddNote();
+    this.zoomEl.hidden = true;
     this.titleEl.textContent = "note";
     // No onSave = a pure reader (view mode): typing into a textarea whose
     // changes silently vanish would be worse than not letting you type.
@@ -200,6 +233,13 @@ export class DocViewer {
     this.pagesEl.innerHTML = "";
     this.marginEl.innerHTML = "";
     this.pages = [];
+    this._pdfDoc = null;
+    this.pdfScale = DEFAULT_PDF_SCALE;
+    this.zoomLabelEl.textContent = "100%";
+    this.zoomOutBtn.disabled = false;
+    this.zoomInBtn.disabled = false;
+    this._hideAddNote();
+    this.zoomEl.hidden = true; // shown once _renderPdf confirms this is one
     this.el.hidden = false;
     this.el.classList.remove("is-note");
     this._flushNote = null;
@@ -232,6 +272,7 @@ export class DocViewer {
   close() {
     this._flushNote?.();
     this._flushNote = null;
+    this._hideAddNote();
     this.el.classList.remove("is-note");
     this._token++; // orphan any in-flight render
     this.el.hidden = true;
@@ -239,6 +280,7 @@ export class DocViewer {
     this.marginEl.innerHTML = "";
     this.pages = [];
     this.recordId = null;
+    this._pdfDoc = null;
   }
 
   async _renderText(record, token) {
@@ -259,13 +301,26 @@ export class DocViewer {
     if (this._token !== token) return;
     const buf = await record.blob.arrayBuffer();
     if (this._token !== token) return;
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    this._pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
     if (this._token !== token) return;
+    this._pdfjsLib = pdfjsLib;
+    this.zoomEl.hidden = false;
+    await this._renderPdfPages(token);
+  }
+
+  /** (Re)draws every page of the already-loaded PDF at this.pdfScale — the
+   *  part zooming redoes. Kept separate from _renderPdf so zooming doesn't
+   *  re-fetch or re-parse the file, just re-rasterize it. */
+  async _renderPdfPages(token) {
+    const pdfjsLib = this._pdfjsLib;
+    const pdf = this._pdfDoc;
+    this.pagesEl.innerHTML = "";
+    this.pages = [];
 
     for (let i = 1; i <= pdf.numPages; i++) {
       const pdfPage = await pdf.getPage(i);
       if (this._token !== token) return;
-      const viewport = pdfPage.getViewport({ scale: 1.35 });
+      const viewport = pdfPage.getViewport({ scale: this.pdfScale });
 
       const page = document.createElement("div");
       page.className = "docviewer__page";
@@ -302,6 +357,34 @@ export class DocViewer {
     }
   }
 
+  // ---------- zoom ----------
+
+  async _setZoom(factor) {
+    if (!this._pdfDoc) return;
+    const next = Math.min(MAX_PDF_SCALE, Math.max(MIN_PDF_SCALE, this.pdfScale * factor));
+    if (next === this.pdfScale) return;
+    this.pdfScale = next;
+    const token = this._token;
+    this._hideAddNote(); // its position was anchored to the old page layout
+
+    // Re-rendering rebuilds every page element, which would otherwise
+    // reset the scroll to the top — restore roughly the same spot instead.
+    const maxScroll = this.bodyEl.scrollHeight - this.bodyEl.clientHeight;
+    const frac = maxScroll > 0 ? this.bodyEl.scrollTop / maxScroll : 0;
+
+    await this._renderPdfPages(token);
+    if (this._token !== token) return;
+    this._applyAllHighlights();
+    this._renderMargin();
+
+    const newMax = this.bodyEl.scrollHeight - this.bodyEl.clientHeight;
+    if (newMax > 0) this.bodyEl.scrollTop = frac * newMax;
+
+    this.zoomLabelEl.textContent = `${Math.round((this.pdfScale / DEFAULT_PDF_SCALE) * 100)}%`;
+    this.zoomOutBtn.disabled = this.pdfScale <= MIN_PDF_SCALE;
+    this.zoomInBtn.disabled = this.pdfScale >= MAX_PDF_SCALE;
+  }
+
   // ---------- highlighting ----------
 
   _pageIndexOf(node) {
@@ -311,35 +394,56 @@ export class DocViewer {
     return -1;
   }
 
+  // Selecting text only ever ARMS the "+ add note" button next to it —
+  // nothing is highlighted or saved, and no note opens, until you actually
+  // press it. See _commitAddNote for the part that used to happen here.
   _onSelection() {
     const sel = window.getSelection();
-    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    if (!sel || sel.isCollapsed || !sel.rangeCount) { this._hideAddNote(); return; }
     const range = sel.getRangeAt(0);
     const text = sel.toString().trim();
-    if (!text) return;
+    if (!text) { this._hideAddNote(); return; }
 
     const pi = this._pageIndexOf(range.startContainer);
     // A selection spanning two pages has no single anchor page — ignore it
     // rather than silently anchoring it to the wrong one.
-    if (pi < 0 || pi !== this._pageIndexOf(range.endContainer)) return;
+    if (pi < 0 || pi !== this._pageIndexOf(range.endContainer)) { this._hideAddNote(); return; }
 
     const root = this.pages[pi].textEl;
     const start = offsetIn(root, range.startContainer, range.startOffset);
     const end = offsetIn(root, range.endContainer, range.endOffset);
-    if (start < 0 || end < 0 || end <= start) return;
+    if (start < 0 || end < 0 || end <= start) { this._hideAddNote(); return; }
 
-    const ann = {
-      id: `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
-      page: pi,
-      start,
-      end,
-      text: sel.toString(),
-      note: "",
-    };
+    this._pending = { page: pi, start, end, text: sel.toString(), rect: range.getBoundingClientRect() };
+    this._positionAddNote();
+  }
+
+  _positionAddNote() {
+    const r = this._pending?.rect;
+    if (!r) return;
+    this.addNoteBtn.hidden = false;
+    // Clamped off the edges — a selection right at the margin shouldn't
+    // push the button half off-screen.
+    this.addNoteBtn.style.left = `${Math.min(Math.max(r.left + r.width / 2, 60), window.innerWidth - 60)}px`;
+    this.addNoteBtn.style.top = `${Math.max(r.top, 40)}px`;
+  }
+
+  _hideAddNote() {
+    this._pending = null;
+    this.addNoteBtn.hidden = true;
+  }
+
+  // The one thing that actually creates a highlight + note — pressing the
+  // button _onSelection armed, never just selecting text.
+  _commitAddNote() {
+    const p = this._pending;
+    if (!p) return;
+    const ann = { id: `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, page: p.page, start: p.start, end: p.end, text: p.text, note: "" };
     this.annotations.push(ann);
-    sel.removeAllRanges();
+    this._hideAddNote();
+    window.getSelection()?.removeAllRanges();
     this._applyAllHighlights();
-    this._renderMargin(ann.id); // focus the new note so you can just start typing
+    this._renderMargin(ann.id); // NOW focus the note — you just asked for it
     this._persist();
   }
 

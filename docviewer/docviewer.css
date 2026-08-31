@@ -43,6 +43,34 @@
   color: var(--ink-faint, #9a927a);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.docviewer__zoom {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px;
+}
+.docviewer__zoom button {
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+}
+.docviewer__zoom button:hover { background: rgba(0, 0, 0, .06); }
+.docviewer__zoom button:disabled { opacity: .35; cursor: default; background: none; }
+.docviewer__zoom span {
+  min-width: 3.4em;
+  text-align: center;
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-faint, #9a927a);
+}
 
 .docviewer__body {
   display: grid;
@@ -111,6 +139,28 @@
   cursor: pointer;
 }
 .docviewer__page--text .docviewer__hl { background: rgba(240, 200, 90, .6); }
+
+/* Selecting text alone never creates a note — this button, appearing next
+   to a fresh selection, is the only thing that does. Fixed positioning:
+   the selection's own rect is already in viewport coordinates, so no
+   scroll-offset math is needed to sit it right next to that rect. */
+.docviewer__addnote {
+  position: fixed;
+  z-index: 70;
+  transform: translate(-50%, -100%);
+  margin-top: -8px;
+  border: none;
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: var(--ink);
+  color: var(--accent-ink);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .22);
+}
+.docviewer__addnote:hover { background: var(--accent); }
 
 .docviewer__error {
   font-size: 14px;
