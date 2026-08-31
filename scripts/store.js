@@ -57,6 +57,17 @@ export function deleteCanvas(id) {
   localStorage.removeItem(itemsKey(id));
   localStorage.removeItem(canvasBgKey(id));
 }
+/** Rewrite the registry to match `orderedIds` (as dragged on the home
+ *  page). Anything missing from the list — shouldn't happen, but a stale
+ *  id from a concurrent tab is cheap to guard against — keeps its old
+ *  relative place at the end rather than silently disappearing. */
+export function reorderCanvases(orderedIds) {
+  const reg = listCanvases();
+  const byId = new Map(reg.map((c) => [c.id, c]));
+  const ordered = orderedIds.map((id) => byId.get(id)).filter(Boolean);
+  for (const c of reg) if (!orderedIds.includes(c.id)) ordered.push(c);
+  writeJSON(CANVASES_KEY, ordered);
+}
 
 // ---------- active canvas (items) ----------
 /** @type {any[]} live binding the item layer reads from */

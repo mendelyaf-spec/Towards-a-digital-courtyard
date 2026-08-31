@@ -1,7 +1,7 @@
 // home.js — your home page: your named canvases and your courtyards.
 
 import {
-  listCanvases, createCanvas, renameCanvas, deleteCanvas,
+  listCanvases, createCanvas, renameCanvas, deleteCanvas, reorderCanvases,
   getMe, setMe,
 } from "./store.js";
 import { listCourtyards, createInvite } from "../courtyardcreationlogic.js";
@@ -34,11 +34,17 @@ export function renderHome(container) {
   const grid = el("div", "home__grid");
   for (const c of listCanvases()) {
     const tile = el("div", "tile");
+    tile.dataset.id = c.id; // read back on drop, to save the new order
     tile.innerHTML = `<span class="tile__name">${escapeHtml(c.name)}</span>`;
     tile.onclick = () => go("canvas/" + c.id);
 
     const tools = el("div", "tile__tools");
+    const drag = el("button", "tile__tool tile__tool--drag");
+    drag.type = "button"; drag.title = "Drag to reorder"; drag.textContent = "⠿";
+    drag.addEventListener("pointerdown", (e) => startDrag(e, tile, grid));
+    drag.addEventListener("click", (e) => e.stopPropagation()); // a plain tap shouldn't open the canvas
     tools.append(
+      drag,
       iconBtn("✎", "Rename", (e) => {
         e.stopPropagation();
         // Type on the tile's own name rather than in a dialog. No re-render
@@ -91,6 +97,55 @@ function startInvite() {
       "(On this device, opening it yourself will create the courtyard as a demo.)",
     url
   );
+}
+
+// Drag a canvas tile to a new spot in the grid via its ⠿ handle. Recomputes
+// the dragged tile's target slot from scratch on every move — from the
+// OTHER tiles' current rects, not from "whatever's under the pointer" —
+// rather than nudging it one step at a time. An incremental hop needs a
+// pointermove for every tile boundary it crosses, and a real cursor (or a
+// coalesced batch of events) can easily jump two tiles in one move; the
+// fresh-each-time version lands in the right slot regardless of how far
+// the pointer moved since the last event. Works the same whether the grid
+// is one row or several. The order only commits to storage on release;
+// nothing is saved mid-drag.
+//
+// Tracked via document listeners rather than setPointerCapture on the
+// handle: capture is implicitly released the moment its element (or an
+// ancestor — here, the tile itself, moving on every reorder) is detached
+// and reattached, which a DOM move does even when the visual position
+// ends up unchanged. That silently ended the drag after the first move.
+// The handle never leaves the tile's bounds during a real drag anyway, so
+// nothing here depended on capture actually widening the hit area.
+function startDrag(e, tile, grid) {
+  e.stopPropagation(); // not "open this canvas"
+  e.preventDefault();
+  tile.classList.add("tile--dragging");
+  const addTile = grid.querySelector(".tile--add");
+
+  const onMove = (ev) => {
+    // The first tile (in visual order) whose row starts below the pointer,
+    // or that shares the pointer's row but starts to its right, is where
+    // the dragged tile belongs — insert before it. Past every tile, it
+    // goes at the end (still ahead of the ever-last "+ new canvas" tile).
+    let target = addTile;
+    for (const t of grid.querySelectorAll(".tile:not(.tile--add)")) {
+      if (t === tile) continue;
+      const r = t.getBoundingClientRect();
+      const sameRow = ev.clientY >= r.top && ev.clientY < r.bottom;
+      if (ev.clientY < r.top || (sameRow && ev.clientX < r.left + r.width / 2)) { target = t; break; }
+    }
+    if (target !== tile) target.before(tile);
+  };
+  const onUp = () => {
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+    tile.classList.remove("tile--dragging");
+    const order = [...grid.querySelectorAll(".tile:not(.tile--add)")].map((t) => t.dataset.id);
+    reorderCanvases(order);
+  };
+  document.addEventListener("pointermove", onMove);
+  document.addEventListener("pointerup", onUp);
 }
 
 // ---- tiny DOM helpers ----

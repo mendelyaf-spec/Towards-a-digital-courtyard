@@ -276,6 +276,9 @@ html, body {
   width: 26px; height: 26px; cursor: pointer; font-size: 13px;
 }
 .tile__tool:hover { background: rgba(0,0,0,.12); }
+.tile__tool--drag { cursor: grab; touch-action: none; } /* we drive the gesture ourselves */
+.tile--dragging { opacity: .5; box-shadow: none; transform: scale(.97); cursor: grabbing; }
+.tile--dragging .tile__tools { opacity: 1; } /* handle stays visible even once the pointer's left the tile */
 
 /* ---------- Courtyard ---------- */
 .courtyard-title { text-align: center; margin: 18px 0 6px; font-size: 22px; font-weight: 600; cursor: pointer; }
