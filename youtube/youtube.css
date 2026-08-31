@@ -65,7 +65,11 @@
   cursor: pointer;
   font-size: 12px;
 }
-.yt-card__iframe { flex: 1; width: 100%; border: none; }
+/* The viewport underneath sets cursor:grab unconditionally (pan from
+   anywhere) — with nothing overriding it here, that "grab" hand shows over
+   a playing video too, which reads as "you can drag this" right when
+   you're just trying to watch or pause it. */
+.yt-card__iframe { flex: 1; width: 100%; border: none; cursor: default; }
 .yt-card__shrink {
   position: absolute;
   top: 6px; right: 6px;
@@ -139,6 +143,7 @@
   border-radius: 8px;
   overflow: hidden;
   background: #000;
+  cursor: default; /* same reasoning as .yt-card__iframe just above */
   z-index: 3;
 }
 .embed-overlay.is-active { display: block; }

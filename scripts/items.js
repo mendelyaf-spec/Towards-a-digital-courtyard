@@ -1866,8 +1866,21 @@ export class ItemLayer {
         return;
       }
       if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen || e.target === linkEdit || e.target.closest?.(".yt-card__edit, .embed-badge")) return;
-      if (e.target.isContentEditable) return; // editing text
-      if (embedOverlay?.classList.contains("is-active") || e.target.closest?.(".yt-card__iframe, .embed-overlay__iframe, .yt-card__shrink, .embed-overlay__close")) return; // let the live embed / its controls handle their own input
+      // A drag starting on the note's own WORDS defers to native text
+      // editing (so it can select them) — but only once there's text
+      // there to select. A freshly created note is always empty and
+      // already focused; deferring there just because it happens to be
+      // contentEditable meant a drag couldn't move it OR select anything
+      // (nothing to select), and — worse — since deferring here means a
+      // bare return, the same pointerdown then bubbled past this item to
+      // the viewport underneath, which reads an unclaimed pointerdown as
+      // "empty canvas, start panning": dragging a fresh note panned the
+      // whole canvas instead of moving it. Falling through to the normal
+      // drag below when it's empty fixes both at once; once there's real
+      // text, native selection still wins, stopped from bubbling same as
+      // every other branch here already is.
+      if (e.target.isContentEditable && e.target.textContent.trim()) { e.stopPropagation(); return; }
+      if (embedOverlay?.classList.contains("is-active") || e.target.closest?.(".yt-card__iframe, .embed-overlay__iframe, .yt-card__shrink, .embed-overlay__close")) { e.stopPropagation(); return; } // let the live embed / its controls handle their own input
       const tappedPoster = !!(ytPoster && (e.target === ytPoster || ytPoster.contains(e.target)));
 
       // View mode: nothing drags and nothing selects, but the board stays
