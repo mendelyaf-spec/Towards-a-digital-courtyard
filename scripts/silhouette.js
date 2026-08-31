@@ -30,9 +30,9 @@ const MAX_POINTS = 160; // hard cap so a noisy/complex silhouette can't produce 
  * Returns a CSS clip-path polygon() string (in percentages, so it scales
  * with whatever box ends up displaying the image) approximating the given
  * image src's own alpha silhouette — or null if there's nothing meaningful
- * to clip (fully transparent, essentially the whole box is opaque already,
- * decode failure, or too small to trace). Callers should just skip
- * clip-path on null, leaving the plain rectangular box.
+ * to clip (fully transparent, decode failure, or too small to trace).
+ * Callers should just skip clip-path on null, leaving the plain
+ * rectangular box.
  */
 export async function alphaClipPath(src) {
   let img;
@@ -61,7 +61,15 @@ export async function alphaClipPath(src) {
   let opaqueCount = 0;
   for (let i = 3; i < data.length; i += 4) if (data[i] >= ALPHA_THRESHOLD) opaqueCount++;
   if (opaqueCount === 0) return null; // nothing to clip TO
-  if (opaqueCount / (w * h) > 0.98) return null; // already essentially a full rectangle — not worth it
+  // No "already basically a rectangle, skip it" bailout here even when
+  // opaqueCount is nearly w*h: a shape that fills most of its own bounding
+  // box (a fat leaf, a portrait crop) is exactly the case a caller fitting
+  // a DIFFERENT photo against this one's outline (see items.js's "attach
+  // link" host, and studio.js's crop frame) most needs a real polygon for
+  // — skipping it there silently swaps a leaf-shaped crop frame for a
+  // plain rectangular one, with nothing on screen saying so. Tracing a
+  // truly full rectangle (opaqueCount === w*h) still just costs a few
+  // wasted point-comparisons; it can't come out wrong.
 
   const insideAt = (x, y) => x >= 0 && x < w && y >= 0 && y < h && data[(y * w + x) * 4 + 3] >= ALPHA_THRESHOLD;
 

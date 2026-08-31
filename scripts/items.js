@@ -2131,14 +2131,19 @@ function isYoutubeEmbed(embed) {
 }
 
 // What a buried embed's preview wash should actually show: a custom photo
-// or label always wins over the auto-detected video thumbnail/favicon. Only
-// a real thumbnail (video frame, or a custom photo) should stretch to cover
-// the item — a bare favicon or a text label stay icon-sized instead.
+// or label always wins over the auto-detected video thumbnail. A real
+// thumbnail (video frame, or a custom photo) stretches to cover the item; a
+// text label stays icon-sized. A bare favicon is neither — it's the SITE's
+// small icon, not a picture of this particular link, and blown up over an
+// item it reads as a stray watermark rather than a preview — so it's never
+// offered here at all, only ever revealed if you deliberately upload a
+// photo or type a label. The link itself is still just as findable either
+// way: every embed keeps its own 🔗/▶ badge regardless of showThumbnail.
 function embedThumbVisual(embed) {
   const isYt = isYoutubeEmbed(embed);
   const image = embed.thumbnailImage || null;
   const text = !image ? embed.thumbnailText || null : null;
-  const url = !image && !text ? (isYt ? embed.thumbnailUrl : embed.faviconUrl) : null;
+  const url = !image && !text && isYt ? embed.thumbnailUrl : null;
   return { image, text, url, iconMode: !isYt && !image, has: !!(image || text || url) };
 }
 
