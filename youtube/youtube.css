@@ -145,6 +145,15 @@
   background: #000;
   cursor: default; /* same reasoning as .yt-card__iframe just above */
   z-index: 3;
+  /* item.embed can be buried on an image or a text item, and BOTH of those
+     item types zero out pointer-events on the item itself (see main.css —
+     lets a click on a transparent corner fall through to whatever's
+     behind), re-enabling it only for a short, specific allowlist that this
+     overlay was never added to. Without this, once the video's playing,
+     the whole overlay -- iframe, pause, the close button, all of it -- is
+     invisible to clicks: they sail straight through to whatever's behind
+     the item instead, and there's no way to stop or even pause it. */
+  pointer-events: auto;
 }
 .embed-overlay.is-active { display: block; }
 .embed-overlay__iframe { width: 100%; height: 100%; border: none; display: block; }
