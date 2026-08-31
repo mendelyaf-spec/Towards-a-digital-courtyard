@@ -567,29 +567,24 @@ export class Studio {
     this.cutoutStage.hidden = true;
     this.positionStage.hidden = false;
     this.frameScale = (this.frame.clientWidth || this.frameNativeW) / this.frameNativeW;
-    // #studioFrameImg is object-fit:cover, so scale:1 crops to FILL the
-    // frame. When the frame's shape doesn't already match the photo's own
-    // (any time hostAspect differs from it — always true for a photo
-    // landing on a differently-shaped item), that default would silently
-    // crop the photo before you've even seen it. Start at the scale that
-    // makes cover's result equal what contain would show instead — the
-    // whole photo, nothing clipped — by dividing contain's fit factor by
-    // cover's: ordinary same-shape photos (contain === cover there) land
-    // on exactly 1, unchanged from before. Floored to the slider's own
-    // minimum so the displayed value and the applied scale never desync.
-    const coverK = Math.max(this.frameNativeW / this.result.width, this.frameNativeH / this.result.height);
-    const containK = Math.min(this.frameNativeW / this.result.width, this.frameNativeH / this.result.height);
-    const initialScale = containK / coverK;
-    // The slider's own declared floor (15%) is a sane default, but a photo
-    // shaped very differently from its host can genuinely need to go
-    // smaller to show the whole thing uncropped — CLAMPING the scale up to
-    // that floor (rather than widening the floor to fit) would silently
-    // force exactly the crop this default exists to avoid. Widen it only
-    // as far as this specific photo/host pairing actually needs, then
-    // reset it back to the sane default on every other open.
-    this.zoomInput.min = String(Math.min(15, Math.floor(initialScale * 100)));
-    this.pos = { scale: initialScale, rotate: 0, offsetX: 0, offsetY: 0 };
-    this.zoomInput.value = Math.round(initialScale * 100);
+    // Starts at scale 1 — #studioFrameImg's own object-fit:cover filling
+    // the (correctly host-shaped) frame, same as any ordinary crop tool
+    // defaults to. An earlier version tried to start shrunk down instead,
+    // far enough to show the whole photo with nothing cropped no matter
+    // how differently shaped the host was — but object-fit:cover decides
+    // its crop from the frame's own LAYOUT size, before any transform runs;
+    // shrinking the result afterward with scale() doesn't undo that crop,
+    // it just makes the same already-cropped rectangle smaller, padded
+    // with empty frame around it (confirmed: a circle shrunk this way
+    // stayed cropped flat top and bottom the whole way down, never
+    // becoming whole). A tall host next to a squarish photo turned that
+    // into a nearly-empty frame with a postage-stamp of picture in the
+    // middle — worse than the crop it was trying to avoid. Filling the
+    // frame by default, same as any ordinary crop tool, reads as correct
+    // instead; zooming IN from here to frame a tighter detail still works
+    // exactly as before.
+    this.pos = { scale: 1, rotate: 0, offsetX: 0, offsetY: 0 };
+    this.zoomInput.value = 100;
     this._setPreviewing(false);
     this._renderFrame();
   }
@@ -602,7 +597,7 @@ export class Studio {
     this.positionHint.textContent = on
       ? "This is exactly what you're about to place. Go back to adjust it more, or use it as is."
       : this._hostAspect
-        ? "Shaped to the item you're attaching this to — the whole photo fits inside it to start. Drag, zoom, or rotate to choose what shows."
+        ? "Shaped to the item you're attaching this to, filling it to start. Drag, zoom, or rotate to choose what shows."
         : "Drag the photo to reposition it, zoom and rotate to choose what shows.";
   }
 
@@ -645,10 +640,20 @@ export class Studio {
     ctx.translate(w / 2 + offsetX, h / 2 + offsetY);
     ctx.rotate((rotate * Math.PI) / 180);
     ctx.scale(scale, scale);
-    // At scale 1 with no pan/rotate, the source exactly fills w×h (the frame
-    // was sized to the source's own aspect ratio) — same as object-fit:cover
-    // does for frameImg when the aspect ratio already matches.
-    ctx.drawImage(this.result, -w / 2, -h / 2, w, h);
+    // drawImage's dWidth/dHeight stretch the source to those exact pixel
+    // dimensions — fine when the frame already shares the photo's aspect
+    // ratio (w×h IS the source's own shape then, so this is a no-op scale),
+    // but a real distortion — a circle baked as an ellipse — whenever it
+    // doesn't, which for a host-shaped frame (a leaf next to a landscape
+    // photo, say) is the common case, not the exception. #studioFrameImg's
+    // own object-fit:cover never stretches; it scales uniformly and crops
+    // the overflow, so replicate that here: one scale factor for both
+    // axes, sized to cover w×h, cropped to it by drawing centered and
+    // letting the canvas's own bounds clip the rest.
+    const coverScale = Math.max(w / this.result.width, h / this.result.height);
+    const dw = this.result.width * coverScale;
+    const dh = this.result.height * coverScale;
+    ctx.drawImage(this.result, -dw / 2, -dh / 2, dw, dh);
     return canvas;
   }
 
