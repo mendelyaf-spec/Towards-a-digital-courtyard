@@ -418,14 +418,14 @@ export function closeLinkPrompt() {
 // Any link, same as the toolbar/pocket: a YouTube link plays inline right
 // over the item on tap; any other link just opens in a new tab on tap (most
 // sites block being framed at all — see the note at the top of this file).
-// Its preview image (the video's thumbnail, or the page's favicon) starts
-// hidden — the whole point is to "bury" it inside the item's own look — and
-// is revealed afterward with the item bar's own opacity slider, which
-// doubles as this control once an item has an embed. That single always-
-// visible slider used to be a second, easy-to-miss one live only here.
+// On tap, its preview image (the video's thumbnail, or a custom photo/
+// label) fades in over the item's own content before it actually opens —
+// how many seconds that takes is the item bar's own slider, which doubles
+// as this control once an item has an embed (see items.js's
+// setRevealSeconds/_activateEmbed).
 
 /**
- * @param {{kind,videoId,url,title,thumbnailUrl,faviconUrl,domain,showThumbnail,thumbnailOpacity,thumbnailImage,thumbnailText}|null} current
+ * @param {{kind,videoId,url,title,thumbnailUrl,faviconUrl,domain,revealSeconds,thumbnailImage,thumbnailText}|null} current
  * @param {(embed:object)=>void} onSubmit — a full embed object, ready to store as item.embed
  * @param {()=>void} onRemove
  */
@@ -439,7 +439,7 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove, host = nu
     <label class="link-pop__label">${hasExisting ? "change the attached link" : "attach a link to this item"}</label>
     <input type="text" class="link-pop__url" placeholder="a YouTube link plays inline; any other link opens on tap" value="${currentUrl}" />
     <p class="link-pop__err" hidden>that doesn't look like a link</p>
-    ${hasExisting ? '<p class="link-pop__hint">tip: this item\'s opacity slider now also reveals its preview</p>' : ""}
+    ${hasExisting ? '<p class="link-pop__hint">tip: this item\'s opacity slider now sets how long its preview takes to reveal, before it opens</p>' : ""}
     ${thumbControlsHTML(host)}
     <div class="link-pop__actions" style="justify-content:space-between;">
       ${hasExisting ? '<button type="button" class="link-pop__remove" data-act="remove">remove</button>' : "<span></span>"}
@@ -477,10 +477,10 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove, host = nu
       addBtn.textContent = "save";
       return;
     }
-    // Preserve an existing preview reveal/opacity when just changing the
-    // link itself; otherwise start hidden, as a freshly-buried link should.
-    const showThumbnail = hasExisting ? current.showThumbnail ?? false : false;
-    const thumbnailOpacity = hasExisting ? current.thumbnailOpacity ?? 1 : 1;
+    // Preserve an already-chosen reveal duration when just changing the
+    // link itself; a freshly-buried link gets left unset (items.js falls
+    // back to DEFAULT_REVEAL_SECONDS).
+    const revealSeconds = hasExisting ? current.revealSeconds : undefined;
     const thumbOverride = getThumbOverride();
     // clipShape is the picker's own call now, decided (with its sensible
     // default) inside wireShapeControls — this old boolean stays alongside
@@ -490,8 +490,8 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove, host = nu
     const clipToShape = shapeOverride.clipShape ? shapeOverride.clipShape !== "box" : hasExisting ? !!current.clipToShape : false;
     const embed =
       link.kind === "youtube"
-        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, showThumbnail, thumbnailOpacity, clipToShape, ...thumbOverride, ...shapeOverride }
-        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, showThumbnail, thumbnailOpacity, clipToShape, ...thumbOverride, ...shapeOverride };
+        ? { kind: "youtube", videoId: link.videoId, title: link.title, thumbnailUrl: link.thumbnailUrl, revealSeconds, clipToShape, ...thumbOverride, ...shapeOverride }
+        : { kind: "link", url: link.url, title: link.title || link.domain, domain: link.domain, faviconUrl: link.faviconUrl, revealSeconds, clipToShape, ...thumbOverride, ...shapeOverride };
     onSubmit(embed);
     closeLinkPrompt();
   };

@@ -84,8 +84,11 @@
 }
 
 /* ---- a link "buried" in any other item (see items.js's item.embed) ---- */
-/* Optional translucent wash of the video's thumbnail (or the page's
-   favicon) over the item's own content — hidden unless turned on. */
+/* The link's own preview (video thumbnail, or a custom photo/label) over
+   the item's own content — hidden until tapped, then fades in over
+   item.embed.revealSeconds before the link actually opens (see
+   _activateEmbed). transition-duration is set inline per activation, so
+   it can be tuned per item instead of fixed here. */
 .embed-thumb-layer {
   position: absolute;
   inset: 0;
@@ -93,6 +96,8 @@
   background-position: center;
   border-radius: 8px;
   pointer-events: none;
+  transition-property: opacity;
+  transition-timing-function: ease;
 }
 /* A favicon is tiny (~64px) — stretching it edge-to-edge like a video
    thumbnail looks blurry, so it stays small and centered instead. */

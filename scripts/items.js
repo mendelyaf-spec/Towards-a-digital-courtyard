@@ -18,6 +18,15 @@ const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
 // video" (or opening a buried link) — otherwise the leading tap of a
 // double-click meant to descend would always fire that first.
 const DBLCLICK_WINDOW = 300;
+// How long a buried link's own preview takes to fade in over the item's
+// content before it actually opens, when nothing else has been set. A
+// multiple of the item bar's slider step (see _showBar) so the slider's
+// own position and this label never disagree with each other.
+const DEFAULT_REVEAL_SECONDS = 0.5;
+const MAX_REVEAL_SECONDS = 5;
+function revealLabel(seconds) {
+  return seconds > 0 ? `${seconds}s reveal` : "instant";
+}
 
 // Base fill color (as r,g,b) per item type, matching the CSS defaults, so
 // the opacity slider can fade the fill without touching its content. Text
@@ -82,6 +91,9 @@ export class ItemLayer {
     // static z-index:2 (see main.css) so the first item touched this
     // session already outranks every untouched note, not just other media.
     this._zTop = 10;
+    // item ids currently mid-reveal (see _activateEmbed) — guards against a
+    // second tap re-triggering the fade-in before it's finished the first.
+    this._revealing = new Set();
     this.selected = null;
     this.drawMode = false;
     this.color = "#b04b4b";
@@ -632,16 +644,17 @@ export class ItemLayer {
     // A "buried" link: any item can carry one (item.embed). A YouTube link
     // plays inline right over the item on tap; any other link just opens in
     // a new tab on tap (older saved items with no .kind predate this and are
-    // always YouTube — see isYoutubeEmbed()). By default the item stays
-    // invisible — it looks exactly like its normal content — until tapped.
-    // Optionally, its preview image (video thumbnail, or the page's favicon)
-    // can show as a translucent wash instead of staying fully hidden
-    // (item.embed.showThumbnail + .thumbnailOpacity).
+    // always YouTube — see isYoutubeEmbed()). By default the item looks
+    // exactly like its normal content until tapped — then, if it has a
+    // preview image (video thumbnail, or a custom photo/label), that image
+    // fades in over item.embed.revealSeconds before it actually opens,
+    // instead of just appearing outright (see _activateEmbed). Sits hidden
+    // here at rest, ready for that transition.
     let embedOverlay = null;
     if (item.embed) {
       const isYt = isYoutubeEmbed(item.embed);
       const v = embedThumbVisual(item.embed);
-      if (item.embed.showThumbnail && v.has) {
+      if (v.has) {
         const thumbLayer = document.createElement("div");
         thumbLayer.className = "embed-thumb-layer";
         thumbLayer.classList.toggle("embed-thumb-layer--icon", v.iconMode);
@@ -649,7 +662,7 @@ export class ItemLayer {
         if (v.image) thumbLayer.style.backgroundImage = `url(${v.image})`;
         else if (v.text) thumbLayer.textContent = v.text;
         else thumbLayer.style.backgroundImage = `url(${v.url})`;
-        thumbLayer.style.opacity = item.embed.thumbnailOpacity ?? 1;
+        thumbLayer.style.opacity = "0";
         this._applyClipMask(thumbLayer, item, v.text, embedClipShape(item.embed), item.embed?.clipShapeSrc);
         el.appendChild(thumbLayer);
       }
@@ -1160,29 +1173,61 @@ export class ItemLayer {
   // Any other link opens in the in-app browser (if wired) so the canvas
   // isn't left behind — some sites still won't allow being framed at all,
   // but that in-app view always offers "open in new tab" as a fallback.
+  //
+  // Opening isn't instant: if there's something to show (the link's own
+  // preview image), the item's own content visibly fades into that preview
+  // over item.embed.revealSeconds first — a beat to register what you're
+  // about to open, instead of the video (or the target page) just
+  // appearing outright. revealSeconds of 0 skips straight to opening, same
+  // as before this existed.
   _activateEmbed(overlay, item) {
     if (!item.embed) return;
-    if (!isYoutubeEmbed(item.embed)) {
-      this._openLink(item.embed.url, item.embed.title);
-      return;
-    }
-    if (!overlay || overlay.classList.contains("is-active")) return;
-    // Same reasoning as _setYtPlaying: the overlay's own z-index only wins
-    // locally within this item, not against some other item entirely that
-    // happens to sit on top of it in the outer stacking order.
-    this._bringToFront(overlay.closest(".item"));
-    const stop = () => {
-      overlay.classList.remove("is-active");
-      overlay.innerHTML = "";
-      if (this._activeEmbed?.item === item) this._activeEmbed = null;
+    if ((overlay && overlay.classList.contains("is-active")) || this._revealing.has(item.id)) return;
+    const el = overlay?.closest(".item") || this.nodes.get(item.id);
+    const layer = el?.querySelector(".embed-thumb-layer");
+    const seconds = Math.max(0, item.embed.revealSeconds ?? DEFAULT_REVEAL_SECONDS);
+    // Closing snaps the preview back to hidden instantly rather than
+    // fading it back out over revealSeconds too — with a long reveal set,
+    // a symmetric fade-out would leave the preview lingering on screen
+    // for that same stretch after you've already asked to stop.
+    const resetLayer = () => {
+      if (!layer) return;
+      layer.style.transitionDuration = "0s";
+      layer.style.opacity = "0";
     };
-    const { iframe, close } = this._buildEmbedIframe(item.embed.videoId, stop);
-    iframe.className = "embed-overlay__iframe";
-    close.className = "embed-overlay__close";
-    close.title = "Stop (Esc also works)";
-    overlay.append(iframe, close);
-    overlay.classList.add("is-active");
-    this._activeEmbed = { item, stop };
+    const open = () => {
+      if (!isYoutubeEmbed(item.embed)) {
+        this._openLink(item.embed.url, item.embed.title);
+        resetLayer(); // nothing here to stop() later, so reset right away
+        return;
+      }
+      if (!overlay) return;
+      // Same reasoning as _setYtPlaying: the overlay's own z-index only wins
+      // locally within this item, not against some other item entirely that
+      // happens to sit on top of it in the outer stacking order.
+      this._bringToFront(el);
+      const stop = () => {
+        overlay.classList.remove("is-active");
+        overlay.innerHTML = "";
+        resetLayer();
+        if (this._activeEmbed?.item === item) this._activeEmbed = null;
+      };
+      const { iframe, close } = this._buildEmbedIframe(item.embed.videoId, stop);
+      iframe.className = "embed-overlay__iframe";
+      close.className = "embed-overlay__close";
+      close.title = "Stop (Esc also works)";
+      overlay.append(iframe, close);
+      overlay.classList.add("is-active");
+      this._activeEmbed = { item, stop };
+    };
+    if (!layer || seconds <= 0) { open(); return; }
+    this._revealing.add(item.id);
+    layer.style.transitionDuration = seconds + "s";
+    layer.style.opacity = "1";
+    setTimeout(() => {
+      this._revealing.delete(item.id);
+      open();
+    }, seconds * 1000);
   }
 
   // Opens a link in the app's own browser panel if one is wired up (keeps
@@ -1390,15 +1435,21 @@ export class ItemLayer {
     const bgColorRow = this.bar.querySelector("#textBgColor").parentElement;
     bgColorRow.style.display = item?.type === "text" ? "" : "none";
     if (item?.type === "text") this.bar.querySelector("#textBgColor").value = item.bgColor || "#ffffff";
-    // When an item carries a buried link, the SAME opacity slider controls
-    // that link's preview visibility instead of the item's own fill — one
-    // discoverable control instead of a second one hidden in a popover.
+    // When an item carries a buried link, the SAME slider controls how many
+    // seconds that link's preview takes to fade in before it opens, instead
+    // of the item's own fill — one discoverable control instead of a
+    // second one hidden in a popover.
     const opInput = this.bar.querySelector("#itemOpacity");
     const opRow = opInput.parentElement;
     if (item?.embed) {
       opRow.style.display = "";
-      opInput.value = Math.round((item.embed.showThumbnail ? item.embed.thumbnailOpacity ?? 1 : 0) * 100);
-      opRow.querySelector("span").textContent = "preview";
+      opInput.min = "0";
+      opInput.max = String(MAX_REVEAL_SECONDS);
+      opInput.step = "0.5";
+      const seconds = item.embed.revealSeconds ?? DEFAULT_REVEAL_SECONDS;
+      opInput.value = String(seconds);
+      opRow.querySelector("span").textContent = revealLabel(seconds);
+      opRow.title = "How many seconds this link's preview takes to fade in before it opens — 0 opens instantly";
     } else if (item?.type === "text" && !item.shapeSrc) {
       // A plain note's "fill" is just a faint wash behind the words — not
       // something worth a control of its own; font size covers what people
@@ -1408,9 +1459,13 @@ export class ItemLayer {
       opRow.style.display = "none";
     } else {
       opRow.style.display = "";
+      opInput.min = "0";
+      opInput.max = "100";
+      opInput.step = "1";
       const def = DEFAULT_OPACITY[item?.type] ?? 1;
       opInput.value = Math.round((item?.opacity ?? def) * 100);
       opRow.querySelector("span").textContent = "opacity";
+      opRow.title = "Fill opacity";
     }
     const fontRow = this.bar.querySelector(".item-bar__op--font");
     fontRow.style.display = item?.type === "text" ? "" : "none";
@@ -1484,9 +1539,16 @@ export class ItemLayer {
     this.bar.querySelector("#textBgColor").addEventListener("input", (e) =>
       this.setBgColor(e.target.value)
     );
-    this.bar.querySelector("#itemOpacity").addEventListener("input", (e) =>
-      this.setOpacity(e.target.value / 100)
-    );
+    this.bar.querySelector("#itemOpacity").addEventListener("input", (e) => {
+      const item = this._get(this.selected);
+      if (item?.embed) {
+        const seconds = Number(e.target.value);
+        this.setRevealSeconds(seconds);
+        e.target.parentElement.querySelector("span").textContent = revealLabel(seconds);
+      } else {
+        this.setOpacity(e.target.value / 100);
+      }
+    });
     this.bar.querySelector('[data-act="timednotes"]').addEventListener("click", (e) => {
       const item = this._get(this.selected);
       if (item?.type === "youtube") this.openTimedNotes(item, e.currentTarget);
@@ -1667,19 +1729,23 @@ export class ItemLayer {
 
   setOpacity(op) {
     const item = this._get(this.selected);
-    if (!item) return;
+    if (!item || item.embed) return; // an embed uses setRevealSeconds instead — see _showBar
+    item.opacity = op;
     const el = this.nodes.get(item.id);
-    if (item.embed) {
-      // Doubles as the buried link's preview control (see _showBar) — one
-      // slider that's always visible, instead of a second one hidden away
-      // in the attach-link popover.
-      item.embed.showThumbnail = op > 0.02;
-      item.embed.thumbnailOpacity = Math.max(op, 0.02);
-      this._applyEmbedThumb(el, item);
-    } else {
-      item.opacity = op;
-      this._applyFill(el, item);
-    }
+    this._applyFill(el, item);
+    save();
+  }
+
+  // How many seconds a buried link's own preview takes to fade in over the
+  // item before it opens (see _activateEmbed) — 0 opens instantly, same as
+  // before this was a transition at all. Doesn't touch the DOM itself:
+  // there's nothing to show until the next time the item is actually
+  // tapped, unlike a fill opacity change (setOpacity), which is visible
+  // immediately.
+  setRevealSeconds(seconds) {
+    const item = this._get(this.selected);
+    if (!item?.embed) return;
+    item.embed.revealSeconds = Math.max(0, seconds);
     save();
   }
 
@@ -1690,31 +1756,6 @@ export class ItemLayer {
     const el = this.nodes.get(item.id);
     if (el) this._applyTextStyle(el, item);
     save();
-  }
-
-  // Adds/updates/removes an item's embed-preview wash in place, without a
-  // full _reRender (which would rebuild the whole node — noticeably janky
-  // on every tick while the opacity slider is being dragged).
-  _applyEmbedThumb(el, item) {
-    if (!el) return;
-    let layer = el.querySelector(".embed-thumb-layer");
-    const v = item.embed && embedThumbVisual(item.embed);
-    if (!item.embed?.showThumbnail || !v?.has) {
-      layer?.remove();
-      return;
-    }
-    if (!layer) {
-      layer = document.createElement("div");
-      layer.className = "embed-thumb-layer";
-      el.insertBefore(layer, el.querySelector(".embed-badge") || el.firstChild);
-    }
-    layer.classList.toggle("embed-thumb-layer--icon", v.iconMode);
-    layer.classList.toggle("embed-thumb-layer--text", !!v.text);
-    if (v.image) { layer.style.backgroundImage = `url(${v.image})`; layer.textContent = ""; }
-    else if (v.text) { layer.style.backgroundImage = ""; layer.textContent = v.text; }
-    else { layer.style.backgroundImage = `url(${v.url})`; layer.textContent = ""; }
-    layer.style.opacity = item.embed.thumbnailOpacity ?? 1;
-    this._applyClipMask(layer, item, v.text, embedClipShape(item.embed), item.embed?.clipShapeSrc);
   }
 
   // Optionally limits a preview wash to the leaf/cutout's own outline
