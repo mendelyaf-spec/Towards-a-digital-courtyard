@@ -73,6 +73,10 @@ export class ItemLayer {
     this.vp = viewport;
     this.nodes = new Map(); // id -> element
     this._shapeClipCache = new Map(); // item.src -> clip-path string | null, computed once per distinct image
+    // Bring-to-front counter for select() — starts well above .item--text's
+    // static z-index:2 (see main.css) so the first item touched this
+    // session already outranks every untouched note, not just other media.
+    this._zTop = 10;
     this.selected = null;
     this.drawMode = false;
     this.color = "#b04b4b";
@@ -1332,7 +1336,16 @@ export class ItemLayer {
     if (id) {
       const el = this.nodes.get(id);
       el?.classList.add("is-selected");
-      this.world.appendChild(el); // bring to front
+      this.world.appendChild(el); // bring to front among untouched items
+      // ...but DOM order alone loses to .item--text's static z-index:2 (see
+      // main.css — notes stay reachable over media on purpose) for
+      // anything that isn't itself a note. A freshly added or reselected
+      // item — media very much included — should still end up genuinely on
+      // top, not just "last sibling and still buried". An inline z-index
+      // beats that class rule outright; the ever-increasing counter keeps
+      // whoever was touched most recently ahead of everyone else touched
+      // before them, note or not.
+      if (el) el.style.zIndex = String(++this._zTop);
       this._showBar();
     } else {
       this._hideBar();
