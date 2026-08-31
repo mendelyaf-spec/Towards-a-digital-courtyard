@@ -624,6 +624,31 @@ html, body {
   white-space: nowrap;
   box-shadow: 0 2px 5px rgba(0,0,0,.2);
 }
+/* A hint photo: a peek at what's inside this item's own layer, entirely
+   independent of any link (see items.js's item.hintImage/.hintText and
+   links.js's openHintPrompt) — always visible once set, same shape-fitting
+   as a buried link's preview but without needing a reveal gesture, since
+   showing itself is the whole point. */
+.hint-layer {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  border-radius: 8px;
+  pointer-events: none;
+}
+.hint-layer--text {
+  display: grid;
+  place-items: center;
+  padding: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #fff;
+  background: rgba(20, 18, 14, .55);
+  text-align: center;
+  text-shadow: 0 1px 3px rgba(0,0,0,.5);
+  word-break: break-word;
+}
 /* Filter-only layers: they hold just the picture, so a shape-hugging
    drop-shadow (the layer halo, the selection ring) never also outlines the
    delete button and resize handle, which live outside them as children of

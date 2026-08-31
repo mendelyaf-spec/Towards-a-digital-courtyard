@@ -641,7 +641,7 @@ export class ItemLayer {
         else if (v.text) thumbLayer.textContent = v.text;
         else thumbLayer.style.backgroundImage = `url(${v.url})`;
         thumbLayer.style.opacity = item.embed.thumbnailOpacity ?? 1;
-        this._applyClipMask(thumbLayer, item, v);
+        this._applyClipMask(thumbLayer, item, v.text, embedClipShape(item.embed), item.embed?.clipShapeSrc);
         el.appendChild(thumbLayer);
       }
 
@@ -660,6 +660,22 @@ export class ItemLayer {
       embedOverlay = document.createElement("div");
       embedOverlay.className = "embed-overlay";
       el.appendChild(embedOverlay);
+    }
+
+    // A hint photo: a peek at what's inside this item's own layer, entirely
+    // independent of a link — always visible when set, no reveal gesture
+    // needed (that's the whole point of a hint). Same shape-fitting as a
+    // buried link's preview (see links.js's openHintPrompt), appended here
+    // the same way the embed wash above is — after the item's own base
+    // content, so it sits over it rather than under it.
+    if (item.hintImage || item.hintText) {
+      const hintLayer = document.createElement("div");
+      hintLayer.className = "hint-layer";
+      hintLayer.classList.toggle("hint-layer--text", !item.hintImage);
+      if (item.hintImage) hintLayer.style.backgroundImage = `url(${item.hintImage})`;
+      else hintLayer.textContent = item.hintText;
+      this._applyClipMask(hintLayer, item, !item.hintImage, item.hintClipShape || "own", item.hintClipShapeSrc);
+      el.appendChild(hintLayer);
     }
 
     // Ink overlay (freehand drawing). Stretches with the item.
@@ -1385,6 +1401,12 @@ export class ItemLayer {
     const embedBtn = this.bar.querySelector('[data-act="embed"]');
     embedBtn.classList.toggle("is-on", !!item?.embed);
     embedBtn.textContent = item?.embed ? "🔗 edit / remove link" : "🔗 attach link";
+
+    // A hint photo — independent of any link, just a peek at what's below.
+    const hintBtn = this.bar.querySelector('[data-act="hint"]');
+    const hasHint = !!(item?.hintImage || item?.hintText);
+    hintBtn.classList.toggle("is-on", hasHint);
+    hintBtn.textContent = hasHint ? "🖼 change hint photo" : "🖼 hint photo";
     this._reflectConnectState();
     this.positionBar();
   }
@@ -1462,15 +1484,6 @@ export class ItemLayer {
       const item = this._get(this.selected);
       if (!item) return;
       const { openEmbedPrompt } = await import("../links/links.js");
-      // A host to preview against — only when this item actually has its
-      // own picture to superimpose the new thumbnail over (a cut-out
-      // photo, or a note wearing one). The clip-path is read straight off
-      // the item's own already-rendered element rather than recomputed:
-      // it's guaranteed to match exactly what's on screen right now, no
-      // second silhouette trace needed.
-      const hostSrc = item.type === "image" ? item.src : item.type === "text" ? item.shapeSrc : null;
-      const hostEl = hostSrc && this.nodes.get(item.id)?.querySelector(".item--image__clip, .text-card");
-      const host = hostSrc ? { src: hostSrc, w: item.w, h: item.h, clipPath: hostEl?.style.clipPath || null } : null;
       openEmbedPrompt(
         anchorEl,
         item.embed || null,
@@ -1489,9 +1502,58 @@ export class ItemLayer {
           save();
           this._reRender(item);
         },
-        host
+        this._hostFor(item)
       );
     });
+    // A hint photo: same shape-fitting popover as a buried link's preview,
+    // reused wholesale (see links.js's openHintPrompt) — just without a
+    // link, since a peek at what's inside this item's layer never needed
+    // one in the first place.
+    this.bar.querySelector('[data-act="hint"]').addEventListener("click", async (e) => {
+      const anchorEl = e.currentTarget;
+      const item = this._get(this.selected);
+      if (!item) return;
+      const { openHintPrompt } = await import("../links/links.js");
+      const current = item.hintImage || item.hintText
+        ? { thumbnailImage: item.hintImage || null, thumbnailText: item.hintText || null, clipShape: item.hintClipShape, clipShapeSrc: item.hintClipShapeSrc }
+        : null;
+      openHintPrompt(
+        anchorEl,
+        current,
+        (hint) => {
+          pushUndoSnapshot();
+          item.hintImage = hint.thumbnailImage || null;
+          item.hintText = hint.thumbnailText || null;
+          item.hintClipShape = hint.clipShape || null;
+          item.hintClipShapeSrc = hint.clipShapeSrc || null;
+          save();
+          this._reRender(item);
+        },
+        () => {
+          pushUndoSnapshot();
+          delete item.hintImage;
+          delete item.hintText;
+          delete item.hintClipShape;
+          delete item.hintClipShapeSrc;
+          save();
+          this._reRender(item);
+        },
+        this._hostFor(item)
+      );
+    });
+  }
+
+  // A host to preview a new thumbnail/hint against — only when this item
+  // actually has its own picture to superimpose it over (a cut-out photo,
+  // or a note wearing one). The clip-path is read straight off the item's
+  // own already-rendered element rather than recomputed: it's guaranteed
+  // to match exactly what's on screen right now, no second silhouette
+  // trace needed.
+  _hostFor(item) {
+    const hostSrc = item.type === "image" ? item.src : item.type === "text" ? item.shapeSrc : null;
+    if (!hostSrc) return null;
+    const hostEl = this.nodes.get(item.id)?.querySelector(".item--image__clip, .text-card");
+    return { src: hostSrc, w: item.w, h: item.h, clipPath: hostEl?.style.clipPath || null };
   }
 
   // Rebuild an item's DOM in place after a data change (e.g. its embed) that
@@ -1614,15 +1676,17 @@ export class ItemLayer {
     else if (v.text) { layer.style.backgroundImage = ""; layer.textContent = v.text; }
     else { layer.style.backgroundImage = `url(${v.url})`; layer.textContent = ""; }
     layer.style.opacity = item.embed.thumbnailOpacity ?? 1;
-    this._applyClipMask(layer, item, v);
+    this._applyClipMask(layer, item, v.text, embedClipShape(item.embed), item.embed?.clipShapeSrc);
   }
 
-  // Optionally limits a buried embed's preview wash to the leaf/cutout's own
-  // outline (using its own image as an alpha mask) instead of its whole
-  // rectangular box — only meaningful for an actual photo (a text label has
-  // no shape to clip to), and only on an image item (the only type that
-  // HAS an irregular outline to clip to in the first place).
-  _applyClipMask(el, item, v) {
+  // Optionally limits a preview wash to the leaf/cutout's own outline
+  // (using its own image as an alpha mask) instead of its whole rectangular
+  // box — only meaningful for an actual photo (a text label has no shape to
+  // clip to), and only on an image item (the only type that HAS an
+  // irregular outline to clip to in the first place). Shared by a buried
+  // link's preview and a hint photo (see _render) — same mechanism, just
+  // fed a different shape/shapeSrc pair by each caller.
+  _applyClipMask(el, item, isText, shape, shapeSrc) {
     // Different shapes need different mechanisms (a mask for an outline, a
     // clip-path for a circle, a radius for rounded), so clear all three
     // first — otherwise switching shapes would stack the old one under
@@ -1630,8 +1694,7 @@ export class ItemLayer {
     el.style.maskImage = el.style.webkitMaskImage = "";
     el.style.clipPath = "";
     el.style.borderRadius = "";
-    if (v.text) return; // a short text label has no shape to take
-    const shape = embedClipShape(item.embed);
+    if (isText) return; // a short text label has no shape to take
     if (shape === "box") return;
     if (shape === "circle") { el.style.clipPath = "circle(50% at 50% 50%)"; return; }
     if (shape === "rounded") { el.style.borderRadius = "18%"; return; }
@@ -1642,7 +1705,7 @@ export class ItemLayer {
     // centred) so the two line up.
     const src =
       shape === "photo"
-        ? item.embed?.clipShapeSrc
+        ? shapeSrc
         : item.type === "image"
           ? item.src
           : item.type === "text"

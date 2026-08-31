@@ -249,7 +249,7 @@ function wireShapeControls(pop, current, outsideGuard, host) {
  * open, since its controls live outside `pop`'s own DOM and would otherwise
  * be read as "clicked outside the popover, close it."
  */
-function wireThumbControls(pop, current, outsideGuard, host = null) {
+function wireThumbControls(pop, current, outsideGuard, host = null, { emptyLabel = "auto", resetTitle = "Back to the link's own preview — the link itself stays" } = {}) {
   const state = { image: current?.thumbnailImage || null, text: current?.thumbnailText || null };
   const preview = pop.querySelector(".link-pop__thumb-preview");
   const overlayHost = pop.querySelector(".link-pop__overlay-host");
@@ -273,7 +273,7 @@ function wireThumbControls(pop, current, outsideGuard, host = null) {
       preview.textContent = "";
     } else {
       preview.style.backgroundImage = "";
-      preview.textContent = state.text || "auto";
+      preview.textContent = state.text || emptyLabel;
     }
     preview.classList.toggle("link-pop__thumb-preview--empty", !state.image && !state.text);
     resetBtn.hidden = !state.image && !state.text;
@@ -281,7 +281,7 @@ function wireThumbControls(pop, current, outsideGuard, host = null) {
     // actually go looking to remove; "use default" read as a vague reset
     // and didn't say the link itself survives untouched.
     resetBtn.textContent = state.image ? "remove photo" : state.text ? "remove label" : "remove photo";
-    resetBtn.title = "Back to the link's own preview — the link itself stays";
+    resetBtn.title = resetTitle;
     // A text label has no size to judge against the host, so the overlay
     // only shows for a picked photo — an empty overlay box would just be
     // confusing next to the small preview already saying "auto"/the label.
@@ -504,6 +504,76 @@ export function openEmbedPrompt(anchorEl, current, onSubmit, onRemove, host = nu
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") submit();
     if (e.key === "Escape") closeLinkPrompt();
+  });
+
+  const onOutside = (e) => {
+    if (outsideGuard.suspended) return;
+    if (!pop.contains(e.target) && e.target !== anchorEl) closeLinkPrompt();
+  };
+  setTimeout(() => document.addEventListener("pointerdown", onOutside), 0);
+  openPop = { el: pop, cleanup: () => document.removeEventListener("pointerdown", onOutside) };
+}
+
+// ---------------- "hint photo" popover ----------------
+// A photo (or a short label) shown directly on an item as a peek at what's
+// inside its own layer — the same shape-fitting machinery as a buried
+// link's preview (thumbControlsHTML / wireThumbControls / wireShapeControls
+// are all already link-agnostic; they only ever touched thumbnailImage/
+// thumbnailText/clipShape and a host to fit against), just without a link,
+// since seeing into a layer never needed one to begin with.
+
+/**
+ * @param {{thumbnailImage,thumbnailText,clipShape,clipShapeSrc}|null} current
+ * @param {(hint:object)=>void} onSubmit
+ * @param {()=>void} onRemove
+ */
+export function openHintPrompt(anchorEl, current, onSubmit, onRemove, host = null) {
+  closeLinkPrompt();
+  const hasExisting = !!current;
+  const pop = document.createElement("div");
+  pop.className = "link-pop";
+  pop.innerHTML = `
+    <label class="link-pop__label">${hasExisting ? "change the hint photo" : "add a hint photo"}</label>
+    <p class="link-pop__hint">Shows on this item as a peek at what's in its layer — no link needed.</p>
+    ${thumbControlsHTML(host)}
+    <div class="link-pop__actions" style="justify-content:space-between;">
+      ${hasExisting ? '<button type="button" class="link-pop__remove" data-act="remove">remove</button>' : "<span></span>"}
+      <span style="display:flex; gap:8px;">
+        <button type="button" class="link-pop__cancel" data-act="cancel">cancel</button>
+        <button type="button" class="link-pop__add" data-act="add">save</button>
+      </span>
+    </div>`;
+  document.body.appendChild(pop);
+
+  const r = anchorEl.getBoundingClientRect();
+  const popW = pop.offsetWidth || 260;
+  const popH = pop.offsetHeight || 150;
+  let top = r.bottom + 8;
+  if (top + popH > window.innerHeight - 8) top = r.top - popH - 8;
+  pop.style.left = Math.min(Math.max(r.left, 8), window.innerWidth - popW - 8) + "px";
+  pop.style.top = Math.min(Math.max(top, 8), window.innerHeight - popH - 8) + "px";
+
+  const outsideGuard = { suspended: false };
+  const getThumbOverride = wireThumbControls(pop, current, outsideGuard, host, {
+    emptyLabel: "none",
+    resetTitle: "Remove the hint photo",
+  });
+  const getShapeOverride = wireShapeControls(pop, current, outsideGuard, host);
+
+  const addBtn = pop.querySelector('[data-act="add"]');
+  addBtn.addEventListener("click", () => {
+    const thumbOverride = getThumbOverride();
+    if (!thumbOverride.thumbnailImage && !thumbOverride.thumbnailText) {
+      alert("Add a photo or type a label first.");
+      return;
+    }
+    onSubmit({ ...thumbOverride, ...getShapeOverride() });
+    closeLinkPrompt();
+  });
+  pop.querySelector('[data-act="cancel"]').addEventListener("click", closeLinkPrompt);
+  pop.querySelector('[data-act="remove"]')?.addEventListener("click", () => {
+    onRemove();
+    closeLinkPrompt();
   });
 
   const onOutside = (e) => {
