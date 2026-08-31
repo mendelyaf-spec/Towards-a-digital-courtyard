@@ -1933,8 +1933,18 @@ export class ItemLayer {
         this.descend(item);
         return;
       }
+      if (this.locked) {
+        // View mode has no item bar to press "↳ enter layer" from, but
+        // descend() is travel, not an edit (see its own comment) — so
+        // starting a still-empty layer shouldn't need edit mode any more
+        // than stepping into a full one does a few lines up. Text's own
+        // dblclick-to-edit meaning below only ever applied once unlocked,
+        // so there's nothing here for it to clash with.
+        e.stopPropagation();
+        this.descend(item);
+        return;
+      }
       if (item.type !== "text") return;
-      if (this.locked) return; // words are fixed in view mode — "read" still opens them
       e.stopPropagation();
       // The header and the body are edited separately — whichever you
       // actually double-clicked is the one that opens. e.target can't

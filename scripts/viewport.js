@@ -5,6 +5,7 @@
 
 const MIN_SCALE = 0.15;
 const MAX_SCALE = 6;
+const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
 
 export class Viewport {
   constructor(viewportEl, worldEl, { onChange } = {}) {
@@ -97,22 +98,41 @@ export class Viewport {
   }
 
   _down(e) {
-    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    this.vp.setPointerCapture(e.pointerId);
+    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, downX: e.clientX, downY: e.clientY });
 
     if (this.pointers.size === 1) {
       this.panning = true;
       this.last = { x: e.clientX, y: e.clientY };
       this.vp.classList.add("is-panning");
+      // Capture is claimed later, in _move, once this is clearly a drag —
+      // not here. A second finger landing is already unambiguous, so that
+      // branch still claims it immediately.
     } else if (this.pointers.size === 2) {
       this.panning = false;
       this.pinch = this._pinchState();
+      this.vp.setPointerCapture(e.pointerId);
     }
   }
 
   _move(e) {
-    if (!this.pointers.has(e.pointerId)) return;
-    this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    const p = this.pointers.get(e.pointerId);
+    if (!p) return;
+    this.pointers.set(e.pointerId, { ...p, x: e.clientX, y: e.clientY });
+
+    // Claim the pointer only once it's moved past a tap's worth of
+    // wobble — items (and anything else under the cursor) stop
+    // propagation for their own drags, so nothing else is listening for
+    // this pointer while it's still ambiguous. Capturing on every down,
+    // as this used to, also retargets the click/dblclick that follows a
+    // plain tap to the viewport instead of whatever was actually tapped
+    // (Chromium routes those to the capture target even though capture
+    // itself is long since released by the time they fire) — silently
+    // eating taps and layer-entering double-clicks on every item while
+    // locked, since a locked item's own pointerdown never stops
+    // propagation and this handler always runs too.
+    if (!this.vp.hasPointerCapture(e.pointerId) && Math.hypot(e.clientX - p.downX, e.clientY - p.downY) > TAP_SLOP) {
+      this.vp.setPointerCapture(e.pointerId);
+    }
 
     if (this.pointers.size >= 2 && this.pinch) {
       const now = this._pinchState();
@@ -149,6 +169,15 @@ export class Viewport {
   }
 
   _wheel(e) {
+    // A note that has more text than fits scrolls itself under the cursor,
+    // not the whole mosaic — otherwise reading down a long note zooms the
+    // canvas out from under you before you get anywhere. No need to have
+    // clicked into it first; just hovering is enough, same as any other
+    // scrollable box. Bail out without preventDefault so the browser's own
+    // scroll runs on the note.
+    const body = e.target.closest?.(".text-body");
+    if (body && body.scrollHeight > body.clientHeight) return;
+
     e.preventDefault();
     // Trackpad pinch arrives as ctrl+wheel; normal wheel also zooms here.
     const factor = Math.exp(-e.deltaY * 0.0015);

@@ -446,6 +446,7 @@ html, body {
   outline: none;
   word-break: break-word;
   overflow-y: auto;
+  overscroll-behavior: contain; /* scrolling to the end of a note shouldn't leak into anything behind it */
   cursor: text;
   scrollbar-width: thin;
 }
