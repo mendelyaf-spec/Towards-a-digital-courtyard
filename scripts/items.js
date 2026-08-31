@@ -13,6 +13,11 @@ import { alphaClipPath } from "./silhouette.js";
 
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
+// A single tap on an item that ALSO carries a layer beneath it needs to
+// wait this long for a possible second tap before committing to "play the
+// video" (or opening a buried link) — otherwise the leading tap of a
+// double-click meant to descend would always fire that first.
+const DBLCLICK_WINDOW = 300;
 
 // Base fill color (as r,g,b) per item type, matching the CSS defaults, so
 // the opacity slider can fade the fill without touching its content. Text
@@ -1787,6 +1792,10 @@ export class ItemLayer {
     // item type is unaffected: el IS the body target, exactly as before.
     const bodyTarget = imageClip || textCard || el;
     badge.style.pointerEvents = "none";
+    // Set while a tap's "play the video" is waiting out DBLCLICK_WINDOW to
+    // see if a second tap (== descend) shows up — see the pointerdown and
+    // dblclick handlers below.
+    let pendingPlay = null;
 
     // File cards (docs/videos placed from the pocket) open on their own
     // button — a readable document goes to the in-app viewer (where its
@@ -1927,16 +1936,34 @@ export class ItemLayer {
       // retargets events to the capturer; they still bubble to document).
       if (this.locked) {
         const sx = e.clientX, sy = e.clientY;
-        const onUp = (ev) => {
-          document.removeEventListener("pointerup", onUp);
-          if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > TAP_SLOP) return; // was a pan
+        const playEmbed = () => {
           if (tappedPoster && item.type === "youtube") {
             this._setYtPlaying(el.querySelector(".yt-card"), item, true);
           } else if (item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
             this._activateEmbed(embedOverlay, item);
           }
+        };
+        const onUp = (ev) => {
+          document.removeEventListener("pointerup", onUp);
+          if (Math.hypot(ev.clientX - sx, ev.clientY - sy) > TAP_SLOP) return; // was a pan
           // A layer beneath is entered with a double-click (its own
           // listener, below) — a single tap no longer reveals it in place.
+          // But this tap IS the leading half of a possible double-click, and
+          // fires well before the browser knows that — so an item carrying
+          // both a layer AND something to play would always play it first,
+          // every single time you tried to descend. Give a second tap a
+          // moment to show up before committing to playing anything; the
+          // dblclick handler below cancels this if it does.
+          if (this._layerChildren(item.id).length) {
+            // The SECOND tap of a double-click runs this same branch again
+            // before dblclick ever fires — without clearing here first,
+            // that second call would only overwrite pendingPlay, leaking
+            // the first tap's still-armed timer to fire on its own later.
+            clearTimeout(pendingPlay);
+            pendingPlay = setTimeout(playEmbed, DBLCLICK_WINDOW);
+          } else {
+            playEmbed();
+          }
         };
         document.addEventListener("pointerup", onUp);
         return;
@@ -2038,6 +2065,7 @@ export class ItemLayer {
     // has a layer beneath it, never both at once.
     el.addEventListener("dblclick", (e) => {
       if (this._layerChildren(item.id).length) {
+        clearTimeout(pendingPlay); // the leading tap's deferred play, if any — see above
         e.stopPropagation();
         this.descend(item);
         return;
