@@ -567,22 +567,24 @@ export class Studio {
     this.cutoutStage.hidden = true;
     this.positionStage.hidden = false;
     this.frameScale = (this.frame.clientWidth || this.frameNativeW) / this.frameNativeW;
-    // Starts at scale 1 — #studioFrameImg's own object-fit:cover filling
-    // the (correctly host-shaped) frame, same as any ordinary crop tool
-    // defaults to. An earlier version tried to start shrunk down instead,
-    // far enough to show the whole photo with nothing cropped no matter
-    // how differently shaped the host was — but object-fit:cover decides
-    // its crop from the frame's own LAYOUT size, before any transform runs;
-    // shrinking the result afterward with scale() doesn't undo that crop,
-    // it just makes the same already-cropped rectangle smaller, padded
-    // with empty frame around it (confirmed: a circle shrunk this way
+    // Fitting against a host's own shape: show the WHOLE photo to start,
+    // letterboxed if its proportions don't match the host's, rather than
+    // committing to a crop before you've even seen what you'd lose. That
+    // needs object-fit:contain as the BASE fit, not cover shrunk down
+    // afterward with scale() — cover decides its crop from the frame's
+    // layout size before any transform runs, so shrinking the result
+    // afterward can't undo it; it only makes the same already-cropped
+    // rectangle smaller (confirmed directly: a circle shrunk that way
     // stayed cropped flat top and bottom the whole way down, never
-    // becoming whole). A tall host next to a squarish photo turned that
-    // into a nearly-empty frame with a postage-stamp of picture in the
-    // middle — worse than the crop it was trying to avoid. Filling the
-    // frame by default, same as any ordinary crop tool, reads as correct
-    // instead; zooming IN from here to frame a tighter detail still works
-    // exactly as before.
+    // becoming whole — and for Thoth, standing tall next to a squarer
+    // leaf, "cover" cropped straight through the head and legs). With
+    // contain as the base, scale 1 is genuinely the whole photo; zooming
+    // IN from there crops progressively tighter, same gesture as before.
+    // No host to match (a free-standing photo, or a background region)
+    // has no letterboxing to avoid — background wants its region actually
+    // filled, and a free-standing photo's frame already matches its own
+    // shape by construction — so only this branch switches the fit.
+    this.frameImg.classList.toggle("studio__frame-img--contain", !!this._hostAspect);
     this.pos = { scale: 1, rotate: 0, offsetX: 0, offsetY: 0 };
     this.zoomInput.value = 100;
     this._setPreviewing(false);
@@ -597,7 +599,7 @@ export class Studio {
     this.positionHint.textContent = on
       ? "This is exactly what you're about to place. Go back to adjust it more, or use it as is."
       : this._hostAspect
-        ? "Shaped to the item you're attaching this to, filling it to start. Drag, zoom, or rotate to choose what shows."
+        ? "Shaped to the item you're attaching this to — the whole photo fits inside it to start. Drag, zoom, or rotate to choose what shows."
         : "Drag the photo to reposition it, zoom and rotate to choose what shows.";
   }
 
@@ -645,14 +647,16 @@ export class Studio {
     // ratio (w×h IS the source's own shape then, so this is a no-op scale),
     // but a real distortion — a circle baked as an ellipse — whenever it
     // doesn't, which for a host-shaped frame (a leaf next to a landscape
-    // photo, say) is the common case, not the exception. #studioFrameImg's
-    // own object-fit:cover never stretches; it scales uniformly and crops
-    // the overflow, so replicate that here: one scale factor for both
-    // axes, sized to cover w×h, cropped to it by drawing centered and
-    // letting the canvas's own bounds clip the rest.
-    const coverScale = Math.max(w / this.result.width, h / this.result.height);
-    const dw = this.result.width * coverScale;
-    const dh = this.result.height * coverScale;
+    // photo, say) is the common case, not the exception. Scale uniformly
+    // instead, matching whichever base fit #studioFrameImg is actually
+    // showing (see _toPosition): "contain" when fitting against a host —
+    // the whole photo, letterboxed, at scale 1 — or "cover" otherwise
+    // (background regions, and a free-standing photo whose frame already
+    // matches its own shape, where cover and contain coincide anyway).
+    const fit = this._hostAspect ? Math.min : Math.max;
+    const fitScale = fit(w / this.result.width, h / this.result.height);
+    const dw = this.result.width * fitScale;
+    const dh = this.result.height * fitScale;
     ctx.drawImage(this.result, -dw / 2, -dh / 2, dw, dh);
     return canvas;
   }

@@ -960,6 +960,18 @@ html, body {
   user-select: none;
   -webkit-user-drag: none;
 }
+/* Fitting a photo against a host item's own shape (a link's thumbnail, a
+   note's shape-photo): start showing the WHOLE photo, letterboxed if its
+   proportions don't match the host's, rather than cropping it sight
+   unseen. object-fit is what decides that crop, at layout time, before
+   any zoom/pan transform runs — scale() on a cover-fit image can only
+   ever crop further in, never reveal what cover already cut away, so the
+   choice has to be made here, not worked around afterward in JS. A
+   background region (object-fit:cover, unchanged) is a fixed frame you're
+   filling on purpose; a thumbnail is a photo you haven't cropped yet. */
+#studioFrameImg.studio__frame-img--contain {
+  object-fit: contain;
+}
 .studio__frame-guide {
   position: absolute;
   inset: 0;
