@@ -901,6 +901,12 @@ export class ItemLayer {
       this.positionBar();
       save();
     }
+    // Growing to full size makes overlapping whatever else is nearby much
+    // more likely — without this, something touched more recently (even a
+    // small note) could sit above the newly-enlarged video and silently
+    // eat clicks meant for its own pause/close controls. select() can't be
+    // relied on here: view mode (where tap-to-play lives) never selects.
+    this._bringToFront(el);
     card.innerHTML = "";
     const stop = () => this._setYtPlaying(card, item, false);
     const { iframe, close } = this._buildEmbedIframe(item.videoId, stop, { jsApi: true });
@@ -1156,6 +1162,10 @@ export class ItemLayer {
       return;
     }
     if (!overlay || overlay.classList.contains("is-active")) return;
+    // Same reasoning as _setYtPlaying: the overlay's own z-index only wins
+    // locally within this item, not against some other item entirely that
+    // happens to sit on top of it in the outer stacking order.
+    this._bringToFront(overlay.closest(".item"));
     const stop = () => {
       overlay.classList.remove("is-active");
       overlay.innerHTML = "";
@@ -1327,6 +1337,25 @@ export class ItemLayer {
   }
 
   // ---------- selection + contextual bar ----------
+
+  // Bring-to-front, usable outside of selection itself: a video that starts
+  // playing in VIEW mode never runs through select() (view mode only ever
+  // deselects — see below), so without this it could stay buried under
+  // whatever item was touched most recently, its own shrink/close button
+  // covered and un-clickable even though the video itself is right there.
+  // DOM order alone loses to .item--text's static z-index:2 (see main.css
+  // — notes stay reachable over media on purpose) for anything that isn't
+  // itself a note, so a freshly reordered or reselected item — media very
+  // much included — needs an inline z-index to genuinely win, not just be
+  // "last sibling and still buried". The ever-increasing counter keeps
+  // whoever was touched most recently ahead of everyone touched before
+  // them, note or not.
+  _bringToFront(el) {
+    if (!el) return;
+    this.world.appendChild(el); // bring to front among untouched items
+    el.style.zIndex = String(++this._zTop);
+  }
+
   select(id) {
     if (this.locked) id = null; // view mode has no selection — only deselection
     if (id === this.selected) return; // re-affirming keeps draw mode intact
@@ -1336,16 +1365,7 @@ export class ItemLayer {
     if (id) {
       const el = this.nodes.get(id);
       el?.classList.add("is-selected");
-      this.world.appendChild(el); // bring to front among untouched items
-      // ...but DOM order alone loses to .item--text's static z-index:2 (see
-      // main.css — notes stay reachable over media on purpose) for
-      // anything that isn't itself a note. A freshly added or reselected
-      // item — media very much included — should still end up genuinely on
-      // top, not just "last sibling and still buried". An inline z-index
-      // beats that class rule outright; the ever-increasing counter keeps
-      // whoever was touched most recently ahead of everyone else touched
-      // before them, note or not.
-      if (el) el.style.zIndex = String(++this._zTop);
+      this._bringToFront(el);
       this._showBar();
     } else {
       this._hideBar();
