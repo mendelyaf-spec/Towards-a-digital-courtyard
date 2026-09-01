@@ -444,11 +444,29 @@ html, body {
   font-size: 16px; /* default — overridden per item by items.js via item.fontSize */
   line-height: 1.3;
   outline: none;
-  word-break: break-word;
+  /* A line breaks between words, never mid-word — a genuinely unbreakable
+     token (one long URL, say) is left to overflow rather than get chopped
+     in half. Both properties: browsers' own UA stylesheet sets
+     overflow-wrap:break-word specifically on any contenteditable element
+     (this one included, once editing starts), which word-break:normal
+     alone doesn't override — needs its own explicit reset here. */
+  word-break: normal;
+  overflow-wrap: normal;
   overflow-y: auto;
   overscroll-behavior: contain; /* scrolling to the end of a note shouldn't leak into anything behind it */
   cursor: text;
   scrollbar-width: thin;
+}
+/* Two invisible spacers a shaped note's own text wraps around — see
+   items.js's _applyNoteShapeWrap and silhouette.js's shapeWrapFloats.
+   float/width/height/shape-outside are all set together, in JS, once a
+   real contour is actually ready; until then these are inert (no float,
+   no size), so a note whose shape trace hasn't resolved yet — or never
+   does — just gets plain, unshaped wrapping instead of losing its text
+   area to two full-height rectangles with nothing between them. */
+.shape-wrap {
+  pointer-events: none;
+  shape-margin: 0;
 }
 /* A note wearing a photo's shape: the cutout is the note's whole body
    (items.js clips the note element itself to the photo's silhouette, so
@@ -467,12 +485,16 @@ html, body {
   user-select: none;
   -webkit-user-drag: none;
 }
-/* Inside a shape the words have to sit clear of the silhouette's edges,
-   and are centred rather than flush — a corner of a leaf is not a place
-   text can live. */
-.item--text.has-shape .text-card {
-  padding: 12% 16%;
-}
+/* Inside a shape the words are centred rather than flush — with each
+   line's own width already hugging the silhouette (see .shape-wrap), a
+   flush edge would just be wherever that line happens to end, not a
+   deliberate margin; centering is what reads as intentional. text-card
+   itself keeps NO padding of its own here: shapeWrapFloats already bakes
+   a small inward margin into the traced contour, in the same 0%-100%
+   coordinate space text-card and text-body actually fill — stacking a
+   second, independent padding on top of that would just be pushing the
+   words in from a margin that no longer means anything relative to the
+   shape underneath them. */
 .item--text.has-shape .text-body {
   text-align: center;
   padding-left: 0;

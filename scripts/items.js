@@ -9,7 +9,7 @@ import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js"
 import { youtubeEmbedUrl } from "../youtube/youtube.js";
 import { YouTubePlayer, fireCrossings, formatTime, parseTime } from "../youtube/timednotes.js";
 import { pushUndoSnapshot, resetUndo, canUndo, popUndoSnapshot } from "./undo.js";
-import { alphaClipPath } from "./silhouette.js";
+import { alphaClipPath, shapeWrapFloats } from "./silhouette.js";
 
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
@@ -87,6 +87,7 @@ export class ItemLayer {
     this.vp = viewport;
     this.nodes = new Map(); // id -> element
     this._shapeClipCache = new Map(); // item.src -> clip-path string | null, computed once per distinct image
+    this._shapeWrapCache = new Map(); // item.shapeSrc -> {left,right} shape-outside polygons | null, see _applyNoteShapeWrap
     // Bring-to-front counter for select() — starts well above .item--text's
     // static z-index:2 (see main.css) so the first item touched this
     // session already outranks every untouched note, not just other media.
@@ -568,7 +569,23 @@ export class ItemLayer {
 
       const t = document.createElement("div");
       t.className = "text-body";
-      t.textContent = item.text || "";
+      if (item.shapeSrc) {
+        // Two invisible floats, one per side — see shapeWrapFloats for how
+        // and why. contentEditable=false makes each an atomic island the
+        // caret and native editing commands skip over rather than land
+        // inside or merge into, the same technique rich-text editors use
+        // for a mention chip sitting in otherwise-plain text.
+        const wrapLeft = document.createElement("div");
+        wrapLeft.className = "shape-wrap shape-wrap--left";
+        wrapLeft.contentEditable = "false";
+        const wrapRight = document.createElement("div");
+        wrapRight.className = "shape-wrap shape-wrap--right";
+        wrapRight.contentEditable = "false";
+        t.append(wrapLeft, wrapRight, document.createTextNode(item.text || ""));
+        this._applyNoteShapeWrap(t, item);
+      } else {
+        t.textContent = item.text || "";
+      }
       card.append(t);
       halo.appendChild(card);
       el.appendChild(halo);
@@ -790,6 +807,52 @@ export class ItemLayer {
     // trace is in flight — only apply if this element is still this item's.
     if (!clipPath || !this.world.contains(clipEl) || this._get(item.id)?.shapeSrc !== src) return;
     clipEl.style.clipPath = clipPath;
+  }
+
+  // Gives a shaped note's live text the shape's own contour to wrap
+  // against — see shapeWrapFloats. Shares the same per-src cache pattern
+  // as _applyNoteShapeClip (a distinct cache, since these are a different
+  // shape of value entirely), so the same photo is only ever traced once
+  // for this too.
+  async _applyNoteShapeWrap(body, item) {
+    const src = item.shapeSrc;
+    if (!src) return;
+    let floats = this._shapeWrapCache.get(src);
+    if (floats === undefined) {
+      floats = await shapeWrapFloats(src).catch(() => null);
+      this._shapeWrapCache.set(src, floats);
+    }
+    if (!floats || !this.world.contains(body) || this._get(item.id)?.shapeSrc !== src) return;
+    // float/width/height/shape-outside all land together, right here, only
+    // once there's a real contour to hug — see .shape-wrap's own comment
+    // for why that atomicity matters (a floated-but-not-yet-shaped spacer
+    // would just pinch the text area to nothing in the meantime).
+    const left = body.querySelector(".shape-wrap--left");
+    const right = body.querySelector(".shape-wrap--right");
+    for (const [el, float, poly] of [[left, "left", floats.left], [right, "right", floats.right]]) {
+      if (!el) continue;
+      el.style.float = float;
+      el.style.width = "50%";
+      el.style.height = "100%";
+      el.style.shapeOutside = poly;
+    }
+  }
+
+  // Re-creates the two shape-wrap floats if they're missing — see
+  // _editText's onInput, the only place this needs calling. Cheap to call
+  // when nothing's actually wrong: bails immediately once both are found.
+  _ensureShapeWrapFloats(body, item) {
+    if (!item.shapeSrc) return;
+    if (body.querySelector(".shape-wrap--left") && body.querySelector(".shape-wrap--right")) return;
+    body.querySelectorAll(".shape-wrap").forEach((n) => n.remove()); // in case only one side survived
+    const wrapLeft = document.createElement("div");
+    wrapLeft.className = "shape-wrap shape-wrap--left";
+    wrapLeft.contentEditable = "false";
+    const wrapRight = document.createElement("div");
+    wrapRight.className = "shape-wrap shape-wrap--right";
+    wrapRight.contentEditable = "false";
+    body.prepend(wrapLeft, wrapRight);
+    this._applyNoteShapeWrap(body, item); // cache is warm by now — effectively instant
   }
 
   // Fades just the shape's fill / wash — text, ink, image, and controls
@@ -2191,6 +2254,7 @@ export class ItemLayer {
   _editText(item, el) {
     pushUndoSnapshot(); // captures the pre-edit text — one undo step per edit session
     const body = el.querySelector(".text-body");
+    this._ensureShapeWrapFloats(body, item);
     body.contentEditable = "true";
     body.focus();
     // Caret to the END rather than selecting everything: on a note with
@@ -2205,7 +2269,17 @@ export class ItemLayer {
 
     // Follow the words: keep whatever is being typed inside the box,
     // instead of letting it spill out past the edges.
-    const onInput = () => scrollCaretIntoView(body);
+    const onInput = () => {
+      // Backspacing all the way to empty (and then some, the way people
+      // actually type) can take the two shape-wrap floats out with it —
+      // contentEditable=false makes them an atomic island, but browsers
+      // still let a backspace at position 0 delete that whole island
+      // rather than just refuse to move past it. Put them right back the
+      // moment that happens, from the same warm cache _applyNoteShapeWrap
+      // already filled the first time around, so it's effectively instant.
+      this._ensureShapeWrapFloats(body, item);
+      scrollCaretIntoView(body);
+    };
     body.addEventListener("input", onInput);
 
     const finish = () => {

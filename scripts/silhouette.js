@@ -82,6 +82,113 @@ export async function alphaClipPath(src) {
   return "polygon(" + loop.map(([x, y]) => `${((x / w) * 100).toFixed(2)}% ${((y / h) * 100).toFixed(2)}%`).join(",") + ")";
 }
 
+/**
+ * A pair of CSS shape-outside polygon() strings — { left, right } — that
+ * make a block of native, live-typed text hug a photo's own silhouette
+ * from both sides as it flows, line by line, instead of sitting inside a
+ * plain rectangle: a line near the narrow tip of a leaf comes out short, a
+ * line through its widest point comes out long. Or null if there's nothing
+ * meaningful to trace (mirrors alphaClipPath's own bail-outs).
+ *
+ * The trick (a standard one for "text inside a shape" in CSS, which has no
+ * shape-inside of its own): two invisible floats, one pinned to each side
+ * of the text box, each shaped like everything OUTSIDE the silhouette on
+ * its half. Native text wraps around them using the browser's own layout
+ * engine — so it never has to be told not to split a word mid-line; that's
+ * just how in-browser line-wrapping already works once nothing forces it
+ * to do otherwise (see items.js, which also stops asking it to for shaped
+ * notes specifically).
+ *
+ * `rows` samples of the silhouette's left/right extent, evenly spaced top
+ * to bottom, are enough to trace a contour that reads as smooth at a
+ * note's actual on-screen size — this is a hugging guide for line breaks,
+ * not a pixel-precise outline like alphaClipPath's.
+ */
+export async function shapeWrapFloats(src, rows = 40) {
+  let img;
+  try {
+    img = await loadImage(src);
+  } catch {
+    return null;
+  }
+  const scale = Math.min(1, TRACE_MAX / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.max(1, Math.round(img.naturalWidth * scale));
+  const h = Math.max(1, Math.round(img.naturalHeight * scale));
+  if (w < 3 || h < 3) return null;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0, w, h);
+  let data;
+  try {
+    data = ctx.getImageData(0, 0, w, h).data;
+  } catch {
+    return null;
+  }
+
+  // Leftmost/rightmost opaque pixel in row py, as a 0..1 fraction of w —
+  // or null if the row has nothing opaque at all (a gap in the shape).
+  const rowExtent = (py) => {
+    let left = -1, right = -1;
+    const base = py * w;
+    for (let x = 0; x < w; x++) {
+      if (data[(base + x) * 4 + 3] >= ALPHA_THRESHOLD) {
+        if (left === -1) left = x;
+        right = x;
+      }
+    }
+    return left === -1 ? null : { left: left / w, right: (right + 1) / w };
+  };
+
+  let sawAny = false;
+  const rowsSampled = [];
+  for (let i = 0; i < rows; i++) {
+    const frac = rows === 1 ? 0 : i / (rows - 1);
+    const py = Math.min(h - 1, Math.round(frac * (h - 1)));
+    const e = rowExtent(py);
+    if (e) sawAny = true;
+    // A fully empty row (a real gap, or just antialiasing noise at the very
+    // tip of the shape) pinches the available width to nothing right there
+    // — correct for a genuine gap, and harmless for a stray one-row sliver.
+    rowsSampled.push({ frac, left: e ? e.left : 0.5, right: e ? e.right : 0.5 });
+  }
+  if (!sawAny) return null;
+
+  // A small inward margin so text sits a breath off the traced edge
+  // instead of pressed right up against it — same spirit as
+  // alphaClipPath's own downsampling, an approximation on top of an
+  // approximation, kept small so the shape still reads as the shape.
+  const MARGIN = 0.05;
+
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
+  const toPct = (v) => `${(v * 100).toFixed(2)}%`;
+  // Each float spans one half of the box, in its OWN 0..1 local coordinate
+  // space (local 0 sits at the box's own edge, local 1 at the midline) —
+  // a row's extent (0..1 of the FULL width) has to be re-expressed in
+  // that local space, clamped, since the silhouette needn't be symmetric
+  // and can lean entirely into one half at a given row (e.g. a leaf's tip).
+  //
+  // Left float: solid from its own edge (local 0) up to the silhouette's
+  // left boundary — text starts right where that boundary is.
+  const left = ["0% 0%", "0% 100%"];
+  for (let i = rows - 1; i >= 0; i--) {
+    const s = rowsSampled[i];
+    const localX = clamp01((s.left + MARGIN) / 0.5);
+    left.push(`${toPct(localX)} ${toPct(s.frac)}`);
+  }
+  // Right float: solid from the silhouette's right boundary out to its
+  // own edge (local 1) — mirrored, so local 0 is the box's midline.
+  const right = ["100% 0%", "100% 100%"];
+  for (let i = rows - 1; i >= 0; i--) {
+    const s = rowsSampled[i];
+    const localX = clamp01(((s.right - MARGIN) - 0.5) / 0.5);
+    right.push(`${toPct(localX)} ${toPct(s.frac)}`);
+  }
+  return { left: `polygon(${left.join(",")})`, right: `polygon(${right.join(",")})` };
+}
+
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
