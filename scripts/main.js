@@ -134,14 +134,33 @@ layer.onReadNote = (item) => {
   // In view mode the reader is exactly that — a reader. Editing a note's
   // words through it is an edit-mode ability like any other.
   if (layer.locked) {
-    docViewer.openNote(item, null);
+    docViewer.openNote(item.text, null);
     return;
   }
-  docViewer.openNote(item, (text) => {
+  docViewer.openNote(item.text, (text) => {
     item.text = text;
     save();
     layer._reRender(item);
   });
+};
+
+// A pinned note: the exact same reader, just pointed at item.noteText
+// instead of a note's own words — see items.js's item.noteText for why
+// this is a distinct thing from onReadNote above (any item can carry one,
+// not just a text note reading itself), and its own comment for why it's
+// also not the same as this file's other "attached notes" (full child
+// items, not a single string).
+layer.onReadPinnedNote = (item) => {
+  if (layer.locked) {
+    docViewer.openNote(item.noteText || "", null, "pinned note");
+    return;
+  }
+  docViewer.openNote(item.noteText || "", (text) => {
+    if (text.trim()) item.noteText = text;
+    else delete item.noteText; // cleared to empty — the badge and button both read this back as "no note"
+    save();
+    layer._reRender(item);
+  }, "pinned note");
 };
 
 const photoBtn = document.getElementById("photoBtn");

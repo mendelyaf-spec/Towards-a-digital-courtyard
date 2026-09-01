@@ -135,6 +135,7 @@ export class ItemLayer {
     this.onOpenLink = null;        // hook: (url, title) -> void — opens the in-app browser, if wired
     this.onPickNoteShape = null;   // hook: (item) -> void — pick a photo whose cutout becomes this note's shape
     this.onReadNote = null;        // hook: (item) -> void — open a note for reading
+    this.onReadPinnedNote = null;  // hook: (item) -> void — open item.noteText for reading, same reader different field
     this._activeEmbed = null;      // { item, stop() } for whichever embed is currently playing, if any
 
     this.bar = document.getElementById("itemBar");
@@ -606,6 +607,17 @@ export class ItemLayer {
         ? "Open the whole document, with its margin notes"
         : "Open and read this note";
       el.appendChild(fileOpen);
+
+      // A shaped note's own box never resizes itself just from typing —
+      // see _updateOverflowBadge/_toggleFullSize. Only ever shown (never
+      // takes up space) once there's actually more text than fits.
+      if (item.shapeSrc) {
+        const overflowBadge = document.createElement("button");
+        overflowBadge.type = "button";
+        overflowBadge.className = "text-overflow-badge";
+        overflowBadge.hidden = true;
+        el.appendChild(overflowBadge);
+      }
     }
     if (item.type === "file") {
       const card = document.createElement("div");
@@ -721,6 +733,25 @@ export class ItemLayer {
       el.appendChild(hintLayer);
     }
 
+    // A pinned note: plain scrollable text attached to any item, tap to
+    // open and read it — the same idea as item.embed (a buried link) but
+    // opening the docviewer's own note reader instead of a page or a
+    // video, and with nothing to do with the item's own shape (unlike a
+    // shaped note's OWN words, which hug its silhouette — this is exactly
+    // the plain, rectangular, freely-scrolling reader any note gets via
+    // its own "read" button, just pointed at item.noteText instead of
+    // item.text). Not the same thing as an "attached note" elsewhere in
+    // this file, which means a full child ITEM revealed on tap — this is
+    // one string, no item of its own.
+    if (item.noteText) {
+      const noteBadge = document.createElement("button");
+      noteBadge.type = "button";
+      noteBadge.className = "note-pin-badge";
+      noteBadge.title = "Read the note pinned to this";
+      noteBadge.textContent = "📝";
+      el.appendChild(noteBadge);
+    }
+
     // Ink overlay (freehand drawing). Stretches with the item.
     const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     svg.setAttribute("class", "ink");
@@ -750,6 +781,15 @@ export class ItemLayer {
     this.world.appendChild(el);
     this.nodes.set(item.id, el);
     this._updateBadge(item);
+    // Whether the "…" badge shows at all depends on measuring the text
+    // body's actual rendered height, which isn't settled until the
+    // browser's laid this new node out — one frame away, not this one.
+    if (item.type === "text" && item.shapeSrc) {
+      requestAnimationFrame(() => {
+        if (this.nodes.get(item.id) !== el) return; // re-rendered or removed in the meantime
+        this._updateOverflowBadge(item, el, el.querySelector(".text-body"));
+      });
+    }
     return el;
   }
 
@@ -1361,6 +1401,29 @@ export class ItemLayer {
       const ghost = !current && parentLayer !== undefined && (it.parentId || null) === parentLayer;
       el.classList.toggle("is-hidden", !current && !ghost);
       el.classList.toggle("is-ghost", ghost);
+      // The item you just descended FROM — not every ghosted sibling, just
+      // this one specific item, the actual host of the layer you're now
+      // on — shows its own text at full size while it's serving as your
+      // backdrop: you're inside its layer now, so the space it used to be
+      // squeezed into on the outer canvas isn't the constraint anymore.
+      // Shrinks right back the moment it stops being that host (you
+      // ascend, or move to a different layer). _ghostBig marks this
+      // specific reason for being big so it can never fight with
+      // _toggleFullSize's own, independent use of the same _preBigSize —
+      // that one is a deliberate click and always wins on its own terms.
+      const isGhostHost = ghost && it.id === this.focusId;
+      const body = it.type === "text" ? el.querySelector(".text-body") : null;
+      const overflowing = body && body.scrollHeight > body.clientHeight + 1;
+      if (isGhostHost && it.shapeAspect && overflowing && !it._preBigSize) {
+        it._preBigSize = { x: it.x, y: it.y, w: it.w, h: it.h };
+        it._ghostBig = true;
+        this._growForBigView(it, el);
+        save();
+      } else if (it._ghostBig && !isGhostHost) {
+        this._shrinkFromBigView(it, el);
+        delete it._ghostBig;
+        save();
+      }
     }
     if (this.selected && !this._visible(this._get(this.selected))) {
       this.select(null);
@@ -1581,6 +1644,12 @@ export class ItemLayer {
     const hasHint = !!(item?.hintImage || item?.hintText);
     hintBtn.classList.toggle("is-on", hasHint);
     hintBtn.textContent = hasHint ? "🖼 change hint photo" : "🖼 hint photo";
+
+    // A pinned note — plain scrollable text, independent of any link or
+    // this item's own shape.
+    const noteBtn = this.bar.querySelector('[data-act="pinnote"]');
+    noteBtn.classList.toggle("is-on", !!item?.noteText);
+    noteBtn.textContent = item?.noteText ? "📝 edit note" : "📝 attach note";
     this._reflectConnectState();
     this.positionBar();
   }
@@ -1730,6 +1799,15 @@ export class ItemLayer {
         },
         this._hostFor(item)
       );
+    });
+    // A pinned note: same reader/editor as any note's own "read" button,
+    // just pointed at item.noteText — see onReadPinnedNote (main.js),
+    // which already decides read-only vs. editable by view/edit mode, so
+    // reaching it from here (only ever clickable unlocked) always opens
+    // ready to type.
+    this.bar.querySelector('[data-act="pinnote"]').addEventListener("click", () => {
+      const item = this._get(this.selected);
+      if (item) this.onReadPinnedNote?.(item);
     });
   }
 
@@ -1882,35 +1960,81 @@ export class ItemLayer {
     item.y = Math.round(cy - item.h / 2);
   }
 
-  // Grows a shaped note (never a plain one — its box already just scrolls,
-  // which is the point) up to fit text that no longer does, keeping the
-  // shape's own aspect ratio rather than just stretching taller — a leaf
-  // squashed thin and tall to cram in more words stops reading as a leaf.
-  // Centered on its current middle point, same as _matchShapeAspect.
-  _growToFitText(item, el, body) {
-    if (!item.shapeAspect) return;
-    if (body.scrollHeight <= body.clientHeight + 1) return; // +1: rounding slop, not a real overflow
+  // A shaped note's own box is whatever size you set it to — typing past
+  // capacity never resizes it on its own. Instead, once its text no
+  // longer fits, a small "…" badge appears (see _render); this just
+  // decides whether that badge is showing, cheap enough to call on every
+  // keystroke. Never for a plain note — its box already just scrolls,
+  // which is the point.
+  _updateOverflowBadge(item, el, body) {
+    if (!item.shapeSrc) return;
+    const badge = el.querySelector(".text-overflow-badge");
+    if (!badge) return;
+    if (item._preBigSize) {
+      // Already showing full-size (however that started — see
+      // _toggleFullSize/_growForBigView) — same badge, now an offer to
+      // shrink back rather than to expand.
+      badge.hidden = false;
+      badge.textContent = "⤫";
+      badge.title = "Back to its usual size";
+      return;
+    }
+    badge.hidden = body.scrollHeight <= body.clientHeight + 1; // +1: rounding slop, not real overflow
+    badge.textContent = "…";
+    badge.title = "Not all the words fit — click to view this at full size";
+  }
+
+  // The shared resize itself, factored out of _toggleFullSize so
+  // _applyVisibility's own automatic version (showing the layer you just
+  // descended from at full size while it's your ghost backdrop) can use
+  // the exact same growth math without going through a click at all.
+  // Keeps the shape's own aspect ratio rather than just stretching
+  // taller — a leaf squashed thin and tall to cram in more words stops
+  // reading as a leaf. Centered on its current middle point.
+  _growForBigView(item, el) {
+    const body = el.querySelector(".text-body");
+    if (!body || body.scrollHeight <= body.clientHeight + 1) return;
     const cx = item.x + item.w / 2, cy = item.y + item.h / 2;
-    let grew = false;
     // A bounded loop, not one shot: growing changes the shape-wrap's own
     // available width too, so how many lines the SAME text needs isn't
-    // perfectly proportional to height — one guess can undershoot. Rare
-    // for an ordinary keystroke, common for pasting in a wall of text all
-    // at once. Re-measuring against the just-resized box converges in a
-    // few steps instead of leaving a big paste overflowing until whatever
-    // the next keystroke happens to be.
+    // perfectly proportional to height — one guess can undershoot.
+    // Re-measuring against the just-resized box converges in a few steps.
     for (let i = 0; i < 6 && body.scrollHeight > body.clientHeight + 1; i++) {
       const factor = body.scrollHeight / body.clientHeight;
       item.w = Math.round(item.w * factor);
       item.h = Math.round(item.h * factor);
       this._layout(el, item);
-      grew = true;
     }
-    if (!grew) return;
     item.x = Math.round(cx - item.w / 2);
     item.y = Math.round(cy - item.h / 2);
     this._layout(el, item);
+  }
+
+  _shrinkFromBigView(item, el) {
+    Object.assign(item, item._preBigSize);
+    delete item._preBigSize;
+    this._layout(el, item);
+  }
+
+  // The "…" badge's own click: view this note at full size in place, or
+  // (clicked again, now showing "⤫") back to whatever size you actually
+  // set it to. Independent of _growForBigView's other caller
+  // (_applyVisibility, entering this note's own layer) — _ghostBig marks
+  // THAT reason specifically so the two never fight over the same
+  // _preBigSize; a manual click here always wins and stays put regardless
+  // of what happens to be going on with any layer.
+  _toggleFullSize(item, el) {
+    if (!item.shapeAspect) return;
+    pushUndoSnapshot();
+    delete item._ghostBig;
+    if (item._preBigSize) {
+      this._shrinkFromBigView(item, el);
+    } else {
+      item._preBigSize = { x: item.x, y: item.y, w: item.w, h: item.h };
+      this._growForBigView(item, el);
+    }
     this.positionBar();
+    this._updateOverflowBadge(item, el, el.querySelector(".text-body"));
     save();
   }
 
@@ -2043,6 +2167,16 @@ export class ItemLayer {
       });
     }
 
+    // The "…" (or, once expanded, "⤫") badge — see _toggleFullSize.
+    const overflowBadge = el.querySelector(".text-overflow-badge");
+    if (overflowBadge) {
+      overflowBadge.addEventListener("pointerdown", (e) => e.stopPropagation());
+      overflowBadge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this._toggleFullSize(item, el);
+      });
+    }
+
     // Link cards (any saved URL) open in the in-app browser if wired.
     if (linkOpen) {
       linkOpen.addEventListener("pointerdown", (e) => e.stopPropagation());
@@ -2062,6 +2196,17 @@ export class ItemLayer {
       embedBadge?.addEventListener("click", (e) => {
         e.stopPropagation();
         if (!embedOverlay.classList.contains("is-active")) this._activateEmbed(embedOverlay, item);
+      });
+    }
+
+    // A pinned note's own always-reachable open target — same reasoning
+    // as the embed badge just above.
+    if (item.noteText) {
+      const noteBadge = el.querySelector(".note-pin-badge");
+      noteBadge?.addEventListener("pointerdown", (e) => e.stopPropagation());
+      noteBadge?.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.onReadPinnedNote?.(item);
       });
     }
 
@@ -2135,7 +2280,7 @@ export class ItemLayer {
         this.select(item.id);
         return;
       }
-      if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen || e.target === linkEdit || e.target.closest?.(".yt-card__edit, .embed-badge")) return;
+      if (e.target === handle || e.target === del || e.target === fileOpen || e.target === linkOpen || e.target === linkEdit || e.target.closest?.(".yt-card__edit, .embed-badge, .text-overflow-badge")) return;
       // A drag starting on the note's own WORDS defers to native text
       // editing (so it can select them) — but only once there's text
       // there to select. A freshly created note is always empty and
@@ -2169,6 +2314,8 @@ export class ItemLayer {
             this._setYtPlaying(el.querySelector(".yt-card"), item, true);
           } else if (item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
             this._activateEmbed(embedOverlay, item);
+          } else if (item.noteText) {
+            this.onReadPinnedNote?.(item);
           }
         };
         const onUp = (ev) => {
@@ -2279,6 +2426,8 @@ export class ItemLayer {
           this._setYtPlaying(el.querySelector(".yt-card"), item, true);
         } else if (wasSelected && item.embed && embedOverlay && !embedOverlay.classList.contains("is-active")) {
           this._activateEmbed(embedOverlay, item);
+        } else if (wasSelected && item.noteText) {
+          this.onReadPinnedNote?.(item);
         }
       };
       bodyTarget.addEventListener("pointermove", onMove);
@@ -2360,10 +2509,13 @@ export class ItemLayer {
         handle.releasePointerCapture(ev.pointerId);
         handle.removeEventListener("pointermove", onMove);
         handle.removeEventListener("pointerup", onUp);
-        // A manual resize while auto-expanded (see _setYtPlaying) locks in
-        // that size — stopping playback then keeps it instead of snapping
-        // back to whatever size it was before you pressed play.
+        // A manual resize while auto-expanded (see _setYtPlaying, or this
+        // session's own _toggleFullSize) locks in that size — stopping
+        // playback, or asking to shrink back, then keeps it instead of
+        // snapping to whatever size it was before.
         delete item._preBigSize;
+        delete item._ghostBig;
+        if (item.type === "text") this._updateOverflowBadge(item, el, el.querySelector(".text-body"));
         save();
       };
       handle.addEventListener("pointermove", onMove);
@@ -2393,7 +2545,7 @@ export class ItemLayer {
     pushUndoSnapshot(); // captures the pre-edit text — one undo step per edit session
     const body = el.querySelector(".text-body");
     this._ensureShapeWrapFloats(body, item);
-    this._growToFitText(item, el, body); // already-too-long text from before this session, say
+    this._updateOverflowBadge(item, el, body); // already-too-long text from before this session, say
     body.contentEditable = "true";
     body.focus();
     // Caret to the END rather than selecting everything: on a note with
@@ -2417,7 +2569,7 @@ export class ItemLayer {
       // moment that happens, from the same warm cache _applyNoteShapeWrap
       // already filled the first time around, so it's effectively instant.
       this._ensureShapeWrapFloats(body, item);
-      this._growToFitText(item, el, body);
+      this._updateOverflowBadge(item, el, body);
       scrollCaretIntoView(body);
     };
     body.addEventListener("input", onInput);
@@ -2425,6 +2577,7 @@ export class ItemLayer {
     const finish = () => {
       body.contentEditable = "false";
       item.text = body.textContent.trim();
+      this._updateOverflowBadge(item, el, body);
       body.removeEventListener("input", onInput);
       body.removeEventListener("blur", finish);
       save();

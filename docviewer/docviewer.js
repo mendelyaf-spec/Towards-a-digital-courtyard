@@ -177,12 +177,17 @@ export class DocViewer {
   }
 
   /**
-   * Read a plain canvas note: its words, large and legible, the same way a
-   * link opens to be read — and editable here, since a note squeezed into
-   * a photo's shape can't practically be edited in place on the canvas.
-   * No margin: marginalia belongs to a document, and a note IS the note.
+   * Read a plain block of text large and legible, the same way a link
+   * opens to be read — and editable here, since text squeezed into a
+   * photo's shape (or just buried as a pinned note) can't practically be
+   * edited in place on the canvas. No margin: marginalia belongs to a
+   * document, and this IS the text — could be a note's own words
+   * (items.js's onReadNote) or a note pinned to some other kind of item
+   * entirely (onReadPinnedNote) — this reader doesn't need to know or
+   * care which; the caller's onSave closes over wherever it actually
+   * belongs.
    */
-  openNote(item, onSave) {
+  openNote(text, onSave, title = "note") {
     const token = ++this._token;
     this.recordId = null;
     this.annotations = [];
@@ -190,7 +195,7 @@ export class DocViewer {
     this._pdfDoc = null;
     this._hideAddNote();
     this.zoomEl.hidden = true;
-    this.titleEl.textContent = "note";
+    this.titleEl.textContent = title;
     // No onSave = a pure reader (view mode): typing into a textarea whose
     // changes silently vanish would be worse than not letting you type.
     this.hintEl.textContent = onSave
@@ -205,7 +210,7 @@ export class DocViewer {
     page.className = "docviewer__page docviewer__page--text";
     const area = document.createElement("textarea");
     area.className = "docviewer__noteedit";
-    area.value = item.text || "";
+    area.value = text || "";
     area.placeholder = "…";
     area.readOnly = !onSave;
     page.appendChild(area);
@@ -222,7 +227,7 @@ export class DocViewer {
     // Don't let a pending debounce drop the last keystrokes on close.
     this._flushNote = () => {
       clearTimeout(timer);
-      if (area.value !== (item.text || "")) onSave?.(area.value);
+      if (area.value !== (text || "")) onSave?.(area.value);
     };
   }
 

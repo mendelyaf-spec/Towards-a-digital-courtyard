@@ -753,6 +753,52 @@ html, body {
   box-shadow: 0 2px 6px rgba(0,0,0,.25);
 }
 
+/* Shown only once a shaped note's own text no longer fits its box (see
+   items.js's _updateOverflowBadge) — a manually-set shape never resizes
+   on its own; this is the way in to seeing the rest of it instead,
+   either at full size in place (_toggleFullSize) or, without any click
+   at all, automatically while it's showing as a layer's own ghost
+   backdrop (_growForBigView). Top-left: delete owns top-right, the
+   resize handle bottom-right, the embed badge bottom-left. */
+.text-overflow-badge {
+  position: absolute;
+  left: -8px; top: -8px;
+  transform: scale(var(--inv-scale, 1));
+  transform-origin: top left;
+  width: 22px; height: 22px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 12px;
+  line-height: 1;
+  display: grid; place-items: center;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0,0,0,.18);
+  pointer-events: auto;
+}
+
+/* A pinned note — see items.js's item.noteText — its own always-reachable
+   tap target, same idea as .embed-badge but for a plain scrollable text
+   note instead of a link. Bottom-center: every other corner is already
+   spoken for (delete top-right, resize handle bottom-right, embed badge
+   bottom-left, the overflow badge above top-left). */
+.note-pin-badge {
+  position: absolute;
+  left: 50%; bottom: -8px;
+  transform: translateX(-50%) scale(var(--inv-scale, 1));
+  transform-origin: bottom center;
+  width: 22px; height: 22px;
+  border-radius: 999px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  display: grid; place-items: center;
+  cursor: pointer;
+  box-shadow: 0 2px 5px rgba(0,0,0,.18);
+  pointer-events: auto;
+}
+
 /* ---------- Toolbar ---------- */
 .toolbar {
   position: fixed;
