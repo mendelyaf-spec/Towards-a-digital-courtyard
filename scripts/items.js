@@ -9,7 +9,7 @@ import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js"
 import { youtubeEmbedUrl } from "../youtube/youtube.js";
 import { YouTubePlayer, fireCrossings, formatTime, parseTime } from "../youtube/timednotes.js";
 import { pushUndoSnapshot, resetUndo, canUndo, popUndoSnapshot } from "./undo.js";
-import { alphaClipPath, shapeWrapFloats } from "./silhouette.js";
+import { alphaClipPath, shapeWrapFloats, naturalAspect } from "./silhouette.js";
 
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
@@ -1786,12 +1786,17 @@ export class ItemLayer {
   }
 
   /** Give a note a photo's shape (a cutout data URL), or clear it with null. */
-  setNoteShapeImage(src) {
+  async setNoteShapeImage(src) {
     const item = this._get(this.selected);
     if (!item || item.type !== "text") return;
     pushUndoSnapshot();
-    if (src) item.shapeSrc = src;
-    else delete item.shapeSrc;
+    if (src) {
+      item.shapeSrc = src;
+      await this._matchShapeAspect(item);
+    } else {
+      delete item.shapeSrc;
+      delete item.shapeAspect;
+    }
     save();
     this._reRender(item); // the shape image and its clip-path are structural
   }
@@ -1801,7 +1806,7 @@ export class ItemLayer {
   // with an editable text body inside it — instead of needing a second,
   // separate note wearing a copy of the same shape. Opens straight into
   // typing, same as a brand new note does.
-  addTextToShape() {
+  async addTextToShape() {
     const item = this._get(this.selected);
     if (!item || item.type !== "image" || !item.src) return;
     pushUndoSnapshot();
@@ -1817,10 +1822,69 @@ export class ItemLayer {
     item.color = item.color || "#1a1a1a";
     item.bgColor = item.bgColor || "#ffffff";
     item.fontSize = item.fontSize || 16;
+    await this._matchShapeAspect(item);
     save();
     this._reRender(item);
     const el = this.nodes.get(item.id);
     if (el) this._editText(item, el);
+  }
+
+  // Resizes item to its own shape photo's aspect ratio, centered on its
+  // current middle point, and remembers that ratio (item.shapeAspect) for
+  // the resize handle to keep honoring afterward (see its pointerdown
+  // handler below). Without this, object-fit:contain letterboxes the
+  // photo inside a box shaped differently than the photo itself — and
+  // every coordinate alphaClipPath/shapeWrapFloats compute (both worked
+  // out in the PHOTO's own 0-100% space) silently drifts out of alignment
+  // with where the photo is actually drawn, so text ends up overflowing
+  // past the shape's own visible edge, not just past its box. Keeps
+  // roughly the note's current AREA rather than its current width or
+  // height specifically — deferring to width alone would silently shrink
+  // a short, wide box down to a sliver the first time a shape is set.
+  async _matchShapeAspect(item) {
+    const src = item.shapeSrc;
+    const aspect = await naturalAspect(src).catch(() => null);
+    if (!aspect || this._get(item.id)?.shapeSrc !== src) return;
+    item.shapeAspect = aspect;
+    const cx = item.x + item.w / 2, cy = item.y + item.h / 2;
+    const h = Math.round(Math.sqrt((item.w * item.h) / aspect));
+    const w = Math.round(h * aspect);
+    item.w = Math.max(MIN_SIZE, w);
+    item.h = Math.max(MIN_SIZE, h);
+    item.x = Math.round(cx - item.w / 2);
+    item.y = Math.round(cy - item.h / 2);
+  }
+
+  // Grows a shaped note (never a plain one — its box already just scrolls,
+  // which is the point) up to fit text that no longer does, keeping the
+  // shape's own aspect ratio rather than just stretching taller — a leaf
+  // squashed thin and tall to cram in more words stops reading as a leaf.
+  // Centered on its current middle point, same as _matchShapeAspect.
+  _growToFitText(item, el, body) {
+    if (!item.shapeAspect) return;
+    if (body.scrollHeight <= body.clientHeight + 1) return; // +1: rounding slop, not a real overflow
+    const cx = item.x + item.w / 2, cy = item.y + item.h / 2;
+    let grew = false;
+    // A bounded loop, not one shot: growing changes the shape-wrap's own
+    // available width too, so how many lines the SAME text needs isn't
+    // perfectly proportional to height — one guess can undershoot. Rare
+    // for an ordinary keystroke, common for pasting in a wall of text all
+    // at once. Re-measuring against the just-resized box converges in a
+    // few steps instead of leaving a big paste overflowing until whatever
+    // the next keystroke happens to be.
+    for (let i = 0; i < 6 && body.scrollHeight > body.clientHeight + 1; i++) {
+      const factor = body.scrollHeight / body.clientHeight;
+      item.w = Math.round(item.w * factor);
+      item.h = Math.round(item.h * factor);
+      this._layout(el, item);
+      grew = true;
+    }
+    if (!grew) return;
+    item.x = Math.round(cx - item.w / 2);
+    item.y = Math.round(cy - item.h / 2);
+    this._layout(el, item);
+    this.positionBar();
+    save();
   }
 
   setOpacity(op) {
@@ -2237,12 +2301,25 @@ export class ItemLayer {
       handle.setPointerCapture(e.pointerId);
       const start = { x: e.clientX, y: e.clientY, w: item.w, h: item.h };
       const keepSquare = item.type === "circle";
+      // A shaped note's own box has to stay the shape's own aspect ratio
+      // (see _matchShapeAspect) — otherwise a manual resize re-introduces
+      // exactly the object-fit:contain letterboxing that throws the
+      // shape-hug's coordinates out of alignment with where the photo is
+      // actually drawn.
+      const lockAspect = item.type === "text" && item.shapeAspect;
       const onMove = (ev) => {
         const dx = (ev.clientX - start.x) / this.vp.scale;
         const dy = (ev.clientY - start.y) / this.vp.scale;
         if (keepSquare) {
           const d = Math.max(start.w + dx, start.h + dy);
           item.w = item.h = Math.max(MIN_SIZE, Math.round(d));
+        } else if (lockAspect) {
+          // Whichever axis the drag is pushing harder wins; the other
+          // follows it at the locked ratio — same "take the max" idea as
+          // keepSquare above, generalized past 1:1.
+          const w = Math.max(start.w + dx, (start.h + dy) * item.shapeAspect);
+          item.w = Math.max(MIN_SIZE, Math.round(w));
+          item.h = Math.max(MIN_SIZE, Math.round(item.w / item.shapeAspect));
         } else {
           item.w = Math.max(MIN_SIZE, Math.round(start.w + dx));
           item.h = Math.max(MIN_SIZE, Math.round(start.h + dy));
@@ -2288,6 +2365,7 @@ export class ItemLayer {
     pushUndoSnapshot(); // captures the pre-edit text — one undo step per edit session
     const body = el.querySelector(".text-body");
     this._ensureShapeWrapFloats(body, item);
+    this._growToFitText(item, el, body); // already-too-long text from before this session, say
     body.contentEditable = "true";
     body.focus();
     // Caret to the END rather than selecting everything: on a note with
@@ -2311,6 +2389,7 @@ export class ItemLayer {
       // moment that happens, from the same warm cache _applyNoteShapeWrap
       // already filled the first time around, so it's effectively instant.
       this._ensureShapeWrapFloats(body, item);
+      this._growToFitText(item, el, body);
       scrollCaretIntoView(body);
     };
     body.addEventListener("input", onInput);

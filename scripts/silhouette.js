@@ -189,6 +189,23 @@ export async function shapeWrapFloats(src, rows = 40) {
   return { left: `polygon(${left.join(",")})`, right: `polygon(${right.join(",")})` };
 }
 
+/**
+ * A photo's own natural width/height ratio, or null on decode failure.
+ * Used to keep a shaped note's own box the same shape as its photo —
+ * object-fit:contain letterboxes the photo inside a box with a different
+ * ratio, which silently drags every coordinate alphaClipPath/
+ * shapeWrapFloats compute (both worked out in the PHOTO's own 0-100%
+ * space) out of alignment with where the photo is actually drawn.
+ */
+export async function naturalAspect(src) {
+  try {
+    const img = await loadImage(src);
+    return img.naturalWidth / img.naturalHeight || null;
+  } catch {
+    return null;
+  }
+}
+
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
