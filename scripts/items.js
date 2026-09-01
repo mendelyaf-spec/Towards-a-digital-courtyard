@@ -1551,6 +1551,12 @@ export class ItemLayer {
     shapeClear.style.display = isText && item.shapeSrc ? "" : "none";
     shapeBtn.textContent = item?.shapeSrc ? "🖼 change shape" : "🖼 shape";
 
+    // A photo cutout, turned into a shaped note wearing its own outline —
+    // see addTextToShape. Image items only; a text item already has a
+    // body to type into (shapeBtn above is its equivalent).
+    const addTextBtn = this.bar.querySelector('[data-act="addtext"]');
+    addTextBtn.style.display = item?.type === "image" ? "" : "none";
+
     // Same button opens the same popover either way, but its label should
     // say "edit" once there's something to edit (and remove) — "attach"
     // reads like a dead end once a link is already there.
@@ -1623,6 +1629,7 @@ export class ItemLayer {
     this.bar.querySelector('[data-act="noteshape-clear"]').addEventListener("click", () =>
       this.setNoteShapeImage(null)
     );
+    this.bar.querySelector('[data-act="addtext"]').addEventListener("click", () => this.addTextToShape());
     this.bar.querySelector("#itemFontSize").addEventListener("input", (e) =>
       this.setFontSize(Number(e.target.value))
     );
@@ -1789,6 +1796,32 @@ export class ItemLayer {
     this._reRender(item); // the shape image and its clip-path are structural
   }
 
+  // Turns an existing photo cutout, in place, into a shaped note wearing
+  // that same photo — same position, same size, same silhouette, just now
+  // with an editable text body inside it — instead of needing a second,
+  // separate note wearing a copy of the same shape. Opens straight into
+  // typing, same as a brand new note does.
+  addTextToShape() {
+    const item = this._get(this.selected);
+    if (!item || item.type !== "image" || !item.src) return;
+    pushUndoSnapshot();
+    const shapeSrc = item.src;
+    delete item.src;
+    delete item.imgScale;
+    delete item.imgRotate;
+    delete item.imgOffsetX;
+    delete item.imgOffsetY;
+    item.type = "text";
+    item.shapeSrc = shapeSrc;
+    item.text = item.text || "";
+    item.color = item.color || "#1a1a1a";
+    item.bgColor = item.bgColor || "#ffffff";
+    item.fontSize = item.fontSize || 16;
+    save();
+    this._reRender(item);
+    const el = this.nodes.get(item.id);
+    if (el) this._editText(item, el);
+  }
 
   setOpacity(op) {
     const item = this._get(this.selected);
