@@ -19,8 +19,12 @@
 // redundant collinear points (long straight runs on a raster staircase
 // collapse to their two endpoints) → cap the point count for a
 // reasonably-sized clip-path string.
+//
+// The core of this (mask → clip-path polygon, mask → shape-outside pair)
+// works on any 0/1 mask, image-derived or not — divide.js reuses both
+// directly on a hand-drawn split instead of a photo's alpha channel.
 
-const TRACE_MAX = 128; // downsample to at most this many px per side before tracing — a clip-path
+export const TRACE_MAX = 128; // downsample to at most this many px per side before tracing — a clip-path
 // is itself an approximation, so full source resolution buys nothing but slowness and a jagged,
 // needlessly detailed polygon; this size still resolves plenty of silhouette detail.
 const ALPHA_THRESHOLD = 24; // pixels at/above this alpha count as "inside" the shape
@@ -35,6 +39,62 @@ const MAX_POINTS = 160; // hard cap so a noisy/complex silhouette can't produce 
  * rectangular box.
  */
 export async function alphaClipPath(src) {
+  const rasterized = await alphaMask(src);
+  if (!rasterized) return null;
+  const { insideAt, w, h } = rasterized;
+  return maskToClipPath(insideAt, w, h);
+}
+
+/**
+ * A pair of CSS shape-outside polygon() strings — { left, right } — that
+ * make a block of native, live-typed text hug a photo's own silhouette
+ * from both sides as it flows, line by line, instead of sitting inside a
+ * plain rectangle: a line near the narrow tip of a leaf comes out short, a
+ * line through its widest point comes out long. Or null if there's nothing
+ * meaningful to trace (mirrors alphaClipPath's own bail-outs).
+ *
+ * The trick (a standard one for "text inside a shape" in CSS, which has no
+ * shape-inside of its own): two invisible floats, one pinned to each side
+ * of the text box, each shaped like everything OUTSIDE the silhouette on
+ * its half. Native text wraps around them using the browser's own layout
+ * engine — so it never has to be told not to split a word mid-line; that's
+ * just how in-browser line-wrapping already works once nothing forces it
+ * to do otherwise (see items.js, which also stops asking it to for shaped
+ * notes specifically).
+ */
+export async function shapeWrapFloats(src, rows = 40) {
+  const rasterized = await alphaMask(src);
+  if (!rasterized) return null;
+  const { insideAt, w, h } = rasterized;
+  return maskToWrapFloats(insideAt, w, h, rows);
+}
+
+/**
+ * A photo's own natural width/height ratio, or null on decode failure.
+ * Used to keep a shaped note's own box the same shape as its photo —
+ * object-fit:contain letterboxes the photo inside a box with a different
+ * ratio, which silently drags every coordinate alphaClipPath/
+ * shapeWrapFloats compute (both worked out in the PHOTO's own 0-100%
+ * space) out of alignment with where the photo is actually drawn.
+ */
+export async function naturalAspect(src) {
+  try {
+    const img = await loadImage(src);
+    return img.naturalWidth / img.naturalHeight || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decodes src, downsamples it to TRACE_MAX, and hands back an
+ * insideAt(x,y) alpha test over the result plus its w/h — the shared
+ * first step of alphaClipPath and shapeWrapFloats, and also how divide.js
+ * gets at a photo-shaped item's own region to divide it further. null on
+ * any failure along the way (decode, too-small, tainted canvas, fully
+ * transparent).
+ */
+export async function alphaMask(src) {
   let img;
   try {
     img = await loadImage(src);
@@ -72,69 +132,55 @@ export async function alphaClipPath(src) {
   // wasted point-comparisons; it can't come out wrong.
 
   const insideAt = (x, y) => x >= 0 && x < w && y >= 0 && y < h && data[(y * w + x) * 4 + 3] >= ALPHA_THRESHOLD;
+  return { insideAt, w, h };
+}
 
+/**
+ * Traces insideAt's boundary (over a w×h grid) into a polygon, as an array
+ * of [xFrac, yFrac] points (0..1 of w/h) — or null if there's nothing to
+ * trace. Works on ANY 0/1 mask, not just an image's alpha channel —
+ * divide.js hands this a hand-drawn region, and keeps the raw points
+ * (rather than just the formatted string below) to re-rasterize a region
+ * that's already the result of one divide for a second one.
+ */
+export function maskToPolygonPoints(insideAt, w, h) {
   let loop = traceLargestContour(insideAt, w, h);
   if (!loop || loop.length < 3) return null;
   loop = removeCollinear(loop);
   if (loop.length > MAX_POINTS) loop = decimate(loop, MAX_POINTS);
   if (loop.length < 3) return null;
+  return loop.map(([x, y]) => [x / w, y / h]);
+}
 
-  return "polygon(" + loop.map(([x, y]) => `${((x / w) * 100).toFixed(2)}% ${((y / h) * 100).toFixed(2)}%`).join(",") + ")";
+/** Formats maskToPolygonPoints' output as a CSS clip-path polygon() string. */
+export function polygonPointsToClipPath(points) {
+  return "polygon(" + points.map(([x, y]) => `${(x * 100).toFixed(2)}% ${(y * 100).toFixed(2)}%`).join(",") + ")";
 }
 
 /**
- * A pair of CSS shape-outside polygon() strings — { left, right } — that
- * make a block of native, live-typed text hug a photo's own silhouette
- * from both sides as it flows, line by line, instead of sitting inside a
- * plain rectangle: a line near the narrow tip of a leaf comes out short, a
- * line through its widest point comes out long. Or null if there's nothing
- * meaningful to trace (mirrors alphaClipPath's own bail-outs).
- *
- * The trick (a standard one for "text inside a shape" in CSS, which has no
- * shape-inside of its own): two invisible floats, one pinned to each side
- * of the text box, each shaped like everything OUTSIDE the silhouette on
- * its half. Native text wraps around them using the browser's own layout
- * engine — so it never has to be told not to split a word mid-line; that's
- * just how in-browser line-wrapping already works once nothing forces it
- * to do otherwise (see items.js, which also stops asking it to for shaped
- * notes specifically).
- *
- * `rows` samples of the silhouette's left/right extent, evenly spaced top
- * to bottom, are enough to trace a contour that reads as smooth at a
- * note's actual on-screen size — this is a hugging guide for line breaks,
- * not a pixel-precise outline like alphaClipPath's.
+ * The shared core of alphaClipPath: traces insideAt's boundary (over a w×h
+ * grid) into a CSS clip-path polygon() string, in percentages of w/h — or
+ * null if there's nothing to trace.
  */
-export async function shapeWrapFloats(src, rows = 40) {
-  let img;
-  try {
-    img = await loadImage(src);
-  } catch {
-    return null;
-  }
-  const scale = Math.min(1, TRACE_MAX / Math.max(img.naturalWidth, img.naturalHeight));
-  const w = Math.max(1, Math.round(img.naturalWidth * scale));
-  const h = Math.max(1, Math.round(img.naturalHeight * scale));
-  if (w < 3 || h < 3) return null;
+export function maskToClipPath(insideAt, w, h) {
+  const points = maskToPolygonPoints(insideAt, w, h);
+  return points && polygonPointsToClipPath(points);
+}
 
-  const canvas = document.createElement("canvas");
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0, w, h);
-  let data;
-  try {
-    data = ctx.getImageData(0, 0, w, h).data;
-  } catch {
-    return null;
-  }
-
-  // Leftmost/rightmost opaque pixel in row py, as a 0..1 fraction of w —
-  // or null if the row has nothing opaque at all (a gap in the shape).
+/**
+ * The shared core of shapeWrapFloats: samples insideAt's left/right extent
+ * over `rows` evenly-spaced rows (over a w×h grid) and turns that into a
+ * { left, right } pair of CSS shape-outside polygon() strings — or null if
+ * insideAt is empty everywhere. See shapeWrapFloats for the technique
+ * itself; this is the mask-based core divide.js also uses directly.
+ */
+export function maskToWrapFloats(insideAt, w, h, rows = 40) {
+  // Leftmost/rightmost "inside" pixel in row py, as a 0..1 fraction of w —
+  // or null if the row has nothing inside at all (a gap in the shape).
   const rowExtent = (py) => {
     let left = -1, right = -1;
-    const base = py * w;
     for (let x = 0; x < w; x++) {
-      if (data[(base + x) * 4 + 3] >= ALPHA_THRESHOLD) {
+      if (insideAt(x, py)) {
         if (left === -1) left = x;
         right = x;
       }
@@ -187,23 +233,6 @@ export async function shapeWrapFloats(src, rows = 40) {
     right.push(`${toPct(localX)} ${toPct(s.frac)}`);
   }
   return { left: `polygon(${left.join(",")})`, right: `polygon(${right.join(",")})` };
-}
-
-/**
- * A photo's own natural width/height ratio, or null on decode failure.
- * Used to keep a shaped note's own box the same shape as its photo —
- * object-fit:contain letterboxes the photo inside a box with a different
- * ratio, which silently drags every coordinate alphaClipPath/
- * shapeWrapFloats compute (both worked out in the PHOTO's own 0-100%
- * space) out of alignment with where the photo is actually drawn.
- */
-export async function naturalAspect(src) {
-  try {
-    const img = await loadImage(src);
-    return img.naturalWidth / img.naturalHeight || null;
-  } catch {
-    return null;
-  }
 }
 
 function loadImage(src) {

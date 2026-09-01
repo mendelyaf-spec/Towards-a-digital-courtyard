@@ -9,7 +9,8 @@ import { items, save, addItem, removeItem, newId, openCanvas } from "./store.js"
 import { youtubeEmbedUrl } from "../youtube/youtube.js";
 import { YouTubePlayer, fireCrossings, formatTime, parseTime } from "../youtube/timednotes.js";
 import { pushUndoSnapshot, resetUndo, canUndo, popUndoSnapshot } from "./undo.js";
-import { alphaClipPath, shapeWrapFloats, naturalAspect } from "./silhouette.js";
+import { alphaClipPath, shapeWrapFloats, naturalAspect, alphaMask } from "./silhouette.js";
+import { splitRegion } from "./divide.js";
 
 const MIN_SIZE = 24;
 const TAP_SLOP = 5; // px of movement still counts as a tap, not a drag
@@ -97,6 +98,7 @@ export class ItemLayer {
     this._revealing = new Set();
     this.selected = null;
     this.drawMode = false;
+    this.divideMode = false; // next stroke on the selected item cuts it into two regions — see _startDivideStroke
     this.color = "#b04b4b";
     // Layers: every item on the mosaic is "layer one"; an item with
     // children has a layer beneath it you can descend into (double-click
@@ -188,6 +190,7 @@ export class ItemLayer {
     this.nodes.clear();
     this.selected = null;
     this.drawMode = false;
+    this.divideMode = false;
     this._hideBar();
     openCanvas(id);
     resetUndo(); // undo history doesn't carry across canvases
@@ -203,6 +206,7 @@ export class ItemLayer {
     if (locked) {
       this.select(null);
       this.drawMode = false;
+      this.divideMode = false;
       this.closeTimedNotes();
       this.endConnect();
     }
@@ -1474,6 +1478,7 @@ export class ItemLayer {
     if (id === this.selected) return; // re-affirming keeps draw mode intact
     if (this.selected) this.nodes.get(this.selected)?.classList.remove("is-selected");
     this.drawMode = false; // only reset when switching to a different item
+    this.divideMode = false;
     this.selected = id;
     if (id) {
       const el = this.nodes.get(id);
@@ -1557,6 +1562,13 @@ export class ItemLayer {
     const addTextBtn = this.bar.querySelector('[data-act="addtext"]');
     addTextBtn.style.display = item?.type === "image" ? "" : "none";
 
+    // Draw-your-own tzuras hadaf: split this item's own area into two —
+    // see _startDivideStroke/_commitDivide. Anything with a region worth
+    // dividing (a photo cutout, a note, shaped or not).
+    const divideBtn = this.bar.querySelector('[data-act="divide"]');
+    divideBtn.style.display = item?.type === "text" || item?.type === "image" ? "" : "none";
+    divideBtn.classList.toggle("is-on", this.divideMode);
+
     // Same button opens the same popover either way, but its label should
     // say "edit" once there's something to edit (and remove) — "attach"
     // reads like a dead end once a link is already there.
@@ -1630,12 +1642,20 @@ export class ItemLayer {
       this.setNoteShapeImage(null)
     );
     this.bar.querySelector('[data-act="addtext"]').addEventListener("click", () => this.addTextToShape());
+    this.bar.querySelector('[data-act="divide"]').addEventListener("click", () => {
+      this.divideMode = !this.divideMode;
+      if (this.divideMode) this.drawMode = false; // the same drag can't mean both at once
+      this._reflectDrawState();
+      this._reflectDivideState();
+    });
     this.bar.querySelector("#itemFontSize").addEventListener("input", (e) =>
       this.setFontSize(Number(e.target.value))
     );
     this.bar.querySelector('[data-act="draw"]').addEventListener("click", () => {
       this.drawMode = !this.drawMode;
+      if (this.drawMode) this.divideMode = false; // the same drag can't mean both at once
       this._reflectDrawState();
+      this._reflectDivideState();
     });
     this.bar.querySelector('[data-act="connect"]').addEventListener("click", () => {
       if (this.connectFrom) return this.endConnect(); // pressing it again disarms
@@ -1744,6 +1764,13 @@ export class ItemLayer {
     this.bar.querySelector('[data-act="draw"]').classList.toggle("is-on", this.drawMode);
     if (this.selected) {
       this.nodes.get(this.selected)?.classList.toggle("is-drawing", this.drawMode);
+    }
+  }
+
+  _reflectDivideState() {
+    this.bar.querySelector('[data-act="divide"]').classList.toggle("is-on", this.divideMode);
+    if (this.selected) {
+      this.nodes.get(this.selected)?.classList.toggle("is-dividing", this.divideMode);
     }
   }
 
@@ -2175,6 +2202,7 @@ export class ItemLayer {
       this.select(item.id);
 
       if (this.drawMode) return this._startStroke(e, bodyTarget, item, svg);
+      if (this.divideMode) return this._startDivideStroke(e, bodyTarget, item, svg);
 
       bodyTarget.setPointerCapture(e.pointerId);
       const kids = this._descendants(item.id).map((k) => ({
@@ -2431,6 +2459,125 @@ export class ItemLayer {
     };
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
+  }
+
+  // Draw-your-own tzuras hadaf: this stroke isn't kept as ink (unlike
+  // _startStroke, right above) — it's a cut. Same live-preview mechanics
+  // (a dashed line here, so it visibly reads as "in progress" rather than
+  // permanent), but on release it's handed to _commitDivide instead of
+  // being pushed onto item.strokes.
+  _startDivideStroke(e, el, item, svg) {
+    el.setPointerCapture(e.pointerId);
+    const preview = strokePath({ color: "#c0392b", points: [] });
+    preview.setAttribute("stroke-dasharray", "24 16");
+    svg.appendChild(preview);
+    const points = [];
+
+    const addPoint = (ev) => {
+      const w = this.vp.screenToWorld(ev.clientX, ev.clientY);
+      const x = clamp01((w.x - item.x) / item.w);
+      const y = clamp01((w.y - item.y) / item.h);
+      points.push({ x, y });
+      preview.setAttribute("d", strokeD({ points: points.map((p) => [p.x, p.y]) }));
+    };
+    addPoint(e);
+    const onMove = (ev) => addPoint(ev);
+    const onUp = async (ev) => {
+      el.releasePointerCapture(ev.pointerId);
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      preview.remove();
+      this.divideMode = false;
+      this._reflectDivideState();
+      if (points.length >= 2) await this._commitDivide(item, points);
+    };
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+  }
+
+  // The item's own CURRENT region as an insideAt(xFrac,yFrac) test, 0..1
+  // over its box — whatever it already looks like right now: a photo
+  // cutout's own alpha silhouette, a shaped note's, an already-divided
+  // piece's (same thing, since a divided piece IS a shapeSrc — see
+  // _commitDivide), or, lacking any of those, the plain rectangular box
+  // itself. This is exactly "what divide should cut," independent of how
+  // that shape came to be.
+  async _regionInsideAt(item) {
+    const src = item.type === "text" ? item.shapeSrc : item.type === "image" ? item.src : null;
+    if (src) {
+      const m = await alphaMask(src).catch(() => null);
+      if (m) return (xf, yf) => m.insideAt(Math.min(m.w - 1, Math.floor(xf * m.w)), Math.min(m.h - 1, Math.floor(yf * m.h)));
+    }
+    return () => true; // no photo behind it (or it failed to trace) -- the whole box is the region
+  }
+
+  // Applies a completed divide stroke: splits item's current region along
+  // points, turns item itself into one resulting piece (same id, same
+  // position — anything already pointing at it, a link, an attached note,
+  // a layer beneath it, keeps pointing at the right one) and creates a
+  // new sibling item for the other, same box, same layer. Both pieces are
+  // representable as plain shaped notes (see divide.js's own module
+  // comment for why: a divided region is just a synthetic photo, run
+  // through the exact same pipeline a real one would be) — so an image
+  // item being divided becomes a text item too, same as addTextToShape.
+  async _commitDivide(item, points) {
+    const insideAt = await this._regionInsideAt(item);
+    const result = splitRegion(insideAt, points);
+    if (!result) {
+      alert("That line didn't divide the area into two — try drawing all the way across it, from one edge to the other.");
+      return;
+    }
+    pushUndoSnapshot();
+    // Captured before EITHER piece is touched — read back off `item`
+    // after its own resize, this would hand the sibling an
+    // already-shifted starting point.
+    const origin = { x: item.x, y: item.y, w: item.w, h: item.h };
+    // A left/right (or any asymmetric) cut's two pieces don't share a
+    // center point — result.*.bounds is each piece's own actual location
+    // within that original box (see splitRegion's own doc comment), so
+    // each starts from where its own content really is instead of both
+    // starting from the original box's center and landing on top of one
+    // another once _matchShapeAspect resizes around that shared point.
+    const boxFor = (bounds) => ({
+      x: Math.round(origin.x + bounds.xFrac * origin.w),
+      y: Math.round(origin.y + bounds.yFrac * origin.h),
+      w: Math.max(MIN_SIZE, Math.round(bounds.wFrac * origin.w)),
+      h: Math.max(MIN_SIZE, Math.round(bounds.hFrac * origin.h)),
+    });
+
+    if (item.type === "image") {
+      delete item.src;
+      delete item.imgScale;
+      delete item.imgRotate;
+      delete item.imgOffsetX;
+      delete item.imgOffsetY;
+      item.type = "text";
+      item.text = item.text || "";
+      item.color = item.color || "#1a1a1a";
+      item.bgColor = item.bgColor || "#ffffff";
+      item.fontSize = item.fontSize || 16;
+    }
+    Object.assign(item, boxFor(result.a.bounds));
+    item.shapeSrc = result.a.dataUrl;
+    await this._matchShapeAspect(item);
+
+    const sibling = addItem({
+      id: newId(),
+      type: "text",
+      ...boxFor(result.b.bounds),
+      text: "",
+      color: "#1a1a1a",
+      bgColor: "#ffffff",
+      fontSize: 16,
+      shapeSrc: result.b.dataUrl,
+      ...(item.parentId ? { parentId: item.parentId } : {}),
+    });
+    await this._matchShapeAspect(sibling);
+
+    save();
+    this._reRender(item); // re-selects it if it was selected, same as setNoteShapeImage
+    this._render(sibling);
+    this._updateBadge(sibling);
   }
 
   remove(id) {

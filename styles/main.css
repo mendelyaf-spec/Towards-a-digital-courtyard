@@ -555,6 +555,17 @@ html, body {
 .item.is-drawing { cursor: crosshair; }
 .item.is-drawing .ink { pointer-events: auto; }
 
+/* Divide mode (build-your-own tzuras hadaf) — just the cursor, deliberately
+   NOT .ink's pointer-events too (unlike is-drawing above): .ink is a CHILD
+   OF THE ITEM ITSELF, a sibling of the shaped/text-card element the body
+   gesture is actually hosted on for a text or image item (see items.js's
+   own bodyTarget comment) — enabling it here would let it catch the
+   pointerdown before that sibling ever sees it, since a sibling's
+   ancestors don't include it, and the whole gesture would never start.
+   Left at its default (none) here, the hit just falls through to the
+   body element underneath, same as any ordinary tap. */
+.item.is-dividing { cursor: crosshair; }
+
 /* The halo: an item with a layer beneath it (double-click to descend)
    glows as if light were escaping from the space under it, rather than
    wearing a thin selection-like ring — a layer is a place, not a flag. */
