@@ -260,16 +260,24 @@ export function openWalk(fromZone, toZone, path, { onComplete, onCancel }) {
   walkTimer = setInterval(tick, 250);
 }
 
+// Scenery is contained the same way every other embed in this app is (see
+// browser/browser.js's own note on this): sandboxed with no allow-popups
+// and no allow-top-navigation, so nothing on the framed page can pop a
+// real tab or hijack this one out from under a walk — you can only ever
+// end up back here, at your actual destination, once the clock runs out.
+const SCENERY_SANDBOX = "allow-scripts allow-same-origin allow-forms";
+
 function sceneryHTML(scenery) {
   if (!scenery) return `<p class="focus-walk__none">(no scenery set for this path — see the planner on your home page)</p>`;
   if (scenery.kind === "youtube") {
-    return `<iframe class="focus-walk__frame" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(scenery.videoId)}?autoplay=1" allow="autoplay; encrypted-media" allowfullscreen title="scenery"></iframe>`;
+    return `<iframe class="focus-walk__frame" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(scenery.videoId)}?autoplay=1" allow="autoplay; encrypted-media" allowfullscreen title="scenery" sandbox="allow-scripts allow-same-origin"></iframe>`;
   }
   // Any other link (a PDF included): most whole websites refuse to be
   // framed at all (see links.js's own note on this), so a way to just
   // open it stays right below the attempt rather than leaving a blank
-  // frame as the only option.
+  // frame as the only option — the one deliberate, visible way out,
+  // same as the in-app browser's own "open in new tab".
   return `
-    <iframe class="focus-walk__frame" src="${scenery.url}" title="scenery"></iframe>
+    <iframe class="focus-walk__frame" src="${scenery.url}" title="scenery" sandbox="${SCENERY_SANDBOX}"></iframe>
     <a class="focus-walk__openlink" href="${scenery.url}" target="_blank" rel="noopener">↗ open "${escapeHtml(scenery.title || scenery.domain || scenery.url)}" in a new tab, if it didn't load above</a>`;
 }

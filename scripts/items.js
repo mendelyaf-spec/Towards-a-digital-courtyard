@@ -1283,6 +1283,13 @@ export class ItemLayer {
     iframe.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
     iframe.allowFullscreen = true;
     iframe.setAttribute("frameborder", "0");
+    // You can watch the video right here; you can't leave through it. No
+    // allow-popups: the player's own "Watch on YouTube" / title / channel
+    // links (target="_blank") are silently inert instead of opening a real
+    // tab. No allow-top-navigation: nothing inside can hijack this page
+    // out from under you either. allow-same-origin stays — without it the
+    // player frequently fails to initialize at all.
+    iframe.setAttribute("sandbox", "allow-scripts allow-same-origin");
     const close = document.createElement("button");
     close.type = "button";
     close.textContent = "✕";

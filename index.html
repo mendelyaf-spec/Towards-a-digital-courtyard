@@ -205,7 +205,11 @@
       </label>
       <button id="inAppBrowserOpenTab" class="in-app-browser__opentab" type="button">↗ open in new tab</button>
     </div>
-    <iframe id="inAppBrowserFrame" class="in-app-browser__frame" src="about:blank" title="In-app browser"></iframe>
+    <!-- Wherever this link actually goes (a wiki page, anything), you can
+         read it and click around inside it — but nothing on it can pop a
+         real new tab or take over this page out from under you. No
+         allow-popups, no allow-top-navigation: see browser/browser.js. -->
+    <iframe id="inAppBrowserFrame" class="in-app-browser__frame" src="about:blank" title="In-app browser" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
   </div>
 
   <!-- Choose a frame from an uploaded video, before it goes into the studio -->

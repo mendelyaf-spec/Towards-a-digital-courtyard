@@ -416,7 +416,10 @@ export class PocketPanel {
       return;
     }
     if (rec.kind === "youtube") {
-      this.previewBody.innerHTML = `<iframe class="pocket-preview__yt" src="${youtubeEmbedUrl(rec.videoId, { autoplay: true })}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen frameborder="0"></iframe>`;
+      // Same containment as the canvas's own embed (see items.js's
+      // _buildEmbedIframe): watchable here, but nothing inside it can pop
+      // a real tab or take over this page.
+      this.previewBody.innerHTML = `<iframe class="pocket-preview__yt" src="${youtubeEmbedUrl(rec.videoId, { autoplay: true })}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen frameborder="0" sandbox="allow-scripts allow-same-origin"></iframe>`;
       this.preview.hidden = false;
       return;
     }

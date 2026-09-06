@@ -13,6 +13,16 @@
 // since revealing the reason would itself leak cross-origin information).
 // So there's always a visible, one-click "open in a new tab instead" — the
 // honest fallback for whenever a site says no.
+//
+// Containment, for whatever DOES show up: the iframe (see index.html) is
+// sandboxed with no allow-popups and no allow-top-navigation. You can read
+// the page and click around inside it — a link just navigates the frame
+// to wherever it points, still right here — but nothing on the page can
+// pop a real new tab or hijack this page out from under you. That's a
+// real, standards-enforced boundary; it's not something JS in this file
+// has to (or even can) police itself. The one deliberate way out is the
+// "open in new tab" button above — a click you choose, not one the page
+// sneaks past you.
 
 export class InAppBrowser {
   constructor() {
