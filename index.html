@@ -34,6 +34,9 @@
     <button id="undoBtn" class="undo-btn" type="button" title="Undo (Ctrl+Z)" disabled>↶</button>
     <!-- The mosaic is fixed until this is pressed; press again to finish. -->
     <button id="editToggle" class="edit-toggle" type="button" aria-pressed="false" title="Edit this canvas">✎ edit</button>
+    <!-- Published mosaics show up in the feed; anything marked private on
+         the item bar stays out of it. Editing only — hidden while viewing. -->
+    <button id="publishToggle" class="publish-toggle" type="button" aria-pressed="false" title="Publish this mosaic to the feed">📰 publish</button>
     <div class="canvas-title">
       <span id="canvasTitle"></span>
       <button id="canvasRename" class="canvas-rename-btn" type="button" title="Rename canvas">✎</button>
@@ -120,6 +123,9 @@
   <!-- COURTYARD: two canvases around a shared void (rendered by courtyard.js) -->
   <div id="courtyardView" class="view" hidden></div>
 
+  <!-- FEED: every published mosaic, browsable read-only (rendered by feed.js) -->
+  <div id="feedView" class="view" hidden></div>
+
   <!-- Take-photo / upload chooser -->
   <div id="photoMenu" class="photo-menu" role="menu" hidden>
     <button class="photo-menu__item" data-source="camera" type="button" role="menuitem">take photo</button>
@@ -154,6 +160,7 @@
     <button class="item-bar__btn" data-act="hint" type="button" title="Show a photo on this item as a peek at what's in its layer — no link needed">🖼 hint photo</button>
     <button class="item-bar__btn" data-act="embed" type="button" title="Attach a link to this item — a YouTube link plays inline; any other link opens on tap">🔗 attach link</button>
     <button class="item-bar__btn" data-act="pinnote" type="button" title="Attach a plain scrollable note to this item — tap it to read, nothing to do with its shape">📝 attach note</button>
+    <button class="item-bar__btn" data-act="private" type="button" title="Keep this out of the feed if you publish the mosaic — everything else about it stays exactly as you left it">🔒 keep private</button>
   </div>
 
   <!-- Document viewer: read a PDF or text file, and write in its margin -->

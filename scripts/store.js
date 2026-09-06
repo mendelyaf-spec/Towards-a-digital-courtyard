@@ -38,11 +38,33 @@ export function getCanvas(id) {
 }
 export function createCanvas(name) {
   const reg = listCanvases();
-  const c = { id: newId(), name: name || `Canvas ${reg.length + 1}`, createdAt: Date.now() };
+  const c = { id: newId(), name: name || `Canvas ${reg.length + 1}`, createdAt: Date.now(), published: false };
   reg.push(c);
   writeJSON(CANVASES_KEY, reg);
   writeJSON(itemsKey(c.id), []);
   return c;
+}
+// ---------- the feed ----------
+// Publishing is a property of the whole canvas, sitting in the registry
+// alongside its name — a mosaic's items (below) decide, item by item,
+// what a published mosaic actually shows (see items.js's item.private).
+export function setCanvasPublished(id, published) {
+  const reg = listCanvases();
+  const c = reg.find((x) => x.id === id);
+  if (c) {
+    c.published = !!published;
+    c.publishedAt = published ? Date.now() : null;
+    writeJSON(CANVASES_KEY, reg);
+  }
+}
+/** Every published canvas, most recently published first — what the feed
+ *  shows. Single-device for now, same as courtyards/invites (see
+ *  courtyardcreationlogic.js): this lists only YOUR published canvases,
+ *  since there's no backend yet to hold anyone else's. */
+export function listPublishedCanvases() {
+  return listCanvases()
+    .filter((c) => c.published)
+    .sort((a, b) => (b.publishedAt || 0) - (a.publishedAt || 0));
 }
 export function renameCanvas(id, name) {
   const reg = listCanvases();

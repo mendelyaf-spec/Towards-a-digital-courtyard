@@ -12,8 +12,9 @@ import { PocketPanel, getPocketBlobURL, sendItemToPocket, addToPocket, getPocket
 import { openLinkPrompt, closeLinkPrompt, setPhotoEditor } from "../links/links.js";
 import { startRouter, go } from "./router.js";
 import { renderHome } from "./home.js";
+import { renderFeed } from "./feed.js";
 import { renderCourtyard } from "./courtyard.js";
-import { migrate, getCanvas, createCanvas, listCanvases, renameCanvas, save, items } from "./store.js";
+import { migrate, getCanvas, createCanvas, listCanvases, renameCanvas, save, items, setCanvasPublished } from "./store.js";
 import { canUndo, setUndoChangeListener } from "./undo.js";
 import { consumeInvite } from "../courtyardcreationlogic.js";
 import { editInline } from "./inlineedit.js";
@@ -23,8 +24,10 @@ migrate(); // bring any old single-canvas data forward
 const homeView = document.getElementById("homeView");
 const canvasView = document.getElementById("canvasView");
 const courtyardView = document.getElementById("courtyardView");
+const feedView = document.getElementById("feedView");
 const zoomLabel = document.getElementById("zoomLabel");
 const canvasTitle = document.getElementById("canvasTitle");
+const canvasBack = document.getElementById("canvasBack");
 
 // ---------- canvas subsystem (built once, loads a canvas on demand) ----------
 const viewport = new Viewport(
@@ -356,7 +359,9 @@ linkBtn.addEventListener("click", () => {
 });
 
 document.getElementById("resetView").addEventListener("click", () => viewport.reset());
-document.getElementById("canvasBack").addEventListener("click", () => go(""));
+// Back means home from your own canvas, but back to the feed list from a
+// published mosaic you got to by browsing it there — see viewingFeed below.
+canvasBack.addEventListener("click", () => go(viewingFeed ? "feed" : ""));
 
 // Rename by typing on the title itself. The ✎ starts it, and so does
 // clicking the name — but only while editing, since the ✎ is hidden in
@@ -397,6 +402,28 @@ function applyEditMode(editing) {
 
 editToggle.addEventListener("click", () => applyEditMode(layer.locked));
 applyEditMode(false); // every canvas opens fixed
+
+// ---------- publishing: any mosaic can go into the feed ----------
+// Whole-canvas, not per-item — see item.private (items.js) for what a
+// published mosaic actually leaves out. Editing only, same as rename:
+// hidden while viewing (.is-viewing, styles/main.css) and, on a mosaic
+// you're browsing FROM the feed rather than editing yourself, hidden
+// outright (.is-feed) — you can't publish someone else's canvas.
+const publishToggle = document.getElementById("publishToggle");
+function applyPublishState(published) {
+  publishToggle.textContent = published ? "✓ published" : "📰 publish";
+  publishToggle.title = published
+    ? "Published — anyone can find this in the feed. Click to unpublish."
+    : "Publish this mosaic to the feed. Anything marked \"keep private\" stays out of it.";
+  publishToggle.classList.toggle("is-on", published);
+  publishToggle.setAttribute("aria-pressed", String(published));
+}
+publishToggle.addEventListener("click", () => {
+  if (!currentCanvasId || viewingFeed) return;
+  const next = !getCanvas(currentCanvasId).published;
+  setCanvasPublished(currentCanvasId, next);
+  applyPublishState(next);
+});
 
 // ---------- layers: the breadcrumb trail, and the ghost-opacity slider ----------
 const layerCrumb = document.getElementById("layerCrumb");
@@ -469,6 +496,7 @@ function showView(name) {
   homeView.hidden = name !== "home";
   canvasView.hidden = name !== "canvas";
   courtyardView.hidden = name !== "courtyard";
+  feedView.hidden = name !== "feed";
 }
 
 function showHome() {
@@ -476,16 +504,49 @@ function showHome() {
   renderHome(homeView);
 }
 let currentCanvasId = null;
+let viewingFeed = false; // true while canvasView is showing a published mosaic FROM the feed, read-only
 function showCanvas(id) {
   if (!id || !getCanvas(id)) return go("");
   showView("canvas");
   currentCanvasId = id;
+  viewingFeed = false;
+  canvasView.classList.remove("is-feed");
+  canvasBack.textContent = "‹ home";
+  canvasBack.title = "Back to home";
   canvasTitle.textContent = getCanvas(id).name;
+  layer.feedMode = false;
+  applyPublishState(!!getCanvas(id).published);
   applyEditMode(false); // a canvas always opens fixed — edit is a choice you make each visit
   layer.loadCanvas(id);
   bg.loadCanvas(id);
   pocket.loadCanvas(id);
   viewport.reset();
+}
+// A published mosaic, browsed from the feed: exactly the canvas above, but
+// read-only (edit is never offered — see .is-feed in styles/main.css) and
+// with item.private items left out (layer.feedMode — see items.js).
+function showFeedCanvas(id) {
+  // Gated on .published, not just existing — an unpublished canvas has no
+  // feed URL to reach it by, but a stale/guessed one shouldn't work either.
+  if (!id || !getCanvas(id)?.published) return go("feed");
+  showView("canvas");
+  currentCanvasId = id;
+  viewingFeed = true;
+  canvasView.classList.add("is-feed");
+  canvasBack.textContent = "‹ feed";
+  canvasBack.title = "Back to the feed";
+  canvasTitle.textContent = getCanvas(id).name;
+  layer.feedMode = true;
+  applyEditMode(false);
+  layer.loadCanvas(id);
+  bg.loadCanvas(id);
+  pocket.loadCanvas(id);
+  viewport.reset();
+}
+function showFeed(id) {
+  if (id) return showFeedCanvas(id);
+  showView("feed");
+  renderFeed(feedView);
 }
 function showCourtyard(id) {
   showView("courtyard");
@@ -503,6 +564,7 @@ function showJoin(token) {
 startRouter({
   "": showHome,
   canvas: showCanvas,
+  feed: showFeed,
   courtyard: showCourtyard,
   join: showJoin,
 });

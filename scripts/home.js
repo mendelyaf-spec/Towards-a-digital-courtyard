@@ -16,10 +16,14 @@ export function renderHome(container) {
   const head = el("header", "home__head");
   head.innerHTML = `
     <h1 class="home__title">the courtyard</h1>
-    <button class="home__me" title="Edit your profile">
-      <span class="home__me-icon">${me.icon}</span>
-      <span class="home__me-name">${escapeHtml(me.name)}</span>
-    </button>`;
+    <div class="home__head-tools">
+      <button class="home__feed-link" type="button" title="Browse published mosaics">📰 feed</button>
+      <button class="home__me" title="Edit your profile">
+        <span class="home__me-icon">${me.icon}</span>
+        <span class="home__me-name">${escapeHtml(me.name)}</span>
+      </button>
+    </div>`;
+  head.querySelector(".home__feed-link").onclick = () => go("feed");
   head.querySelector(".home__me").onclick = () => {
     const name = prompt("Your name", me.name);
     if (name === null) return;
@@ -35,7 +39,8 @@ export function renderHome(container) {
   for (const c of listCanvases()) {
     const tile = el("div", "tile");
     tile.dataset.id = c.id; // read back on drop, to save the new order
-    tile.innerHTML = `<span class="tile__name">${escapeHtml(c.name)}</span>`;
+    tile.innerHTML = `<span class="tile__name">${escapeHtml(c.name)}</span>`
+      + (c.published ? `<span class="tile__badge" title="Published to the feed">📰</span>` : "");
     tile.onclick = () => go("canvas/" + c.id);
 
     const tools = el("div", "tile__tools");

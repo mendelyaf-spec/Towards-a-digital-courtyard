@@ -99,6 +99,12 @@ export class ItemLayer {
     this.selected = null;
     this.drawMode = false;
     this.divideMode = false; // next stroke on the selected item cuts it into two regions — see _startDivideStroke
+    // Read-only rendering of a PUBLISHED mosaic, as the feed shows it — see
+    // main.js's showFeedCanvas. Same items, same layers, but item.private
+    // ones are left out entirely (see _visible/_children below), and
+    // main.js keeps the whole mosaic locked while this is on so nothing
+    // here is ever an edit.
+    this.feedMode = false;
     this.color = "#b04b4b";
     // Layers: every item on the mosaic is "layer one"; an item with
     // children has a layer beneath it you can descend into (double-click
@@ -240,7 +246,15 @@ export class ItemLayer {
 
   // ---------- tree helpers (recursive grouping) ----------
   _children(id) {
-    return items.filter((it) => it.parentId === id);
+    const kids = items.filter((it) => it.parentId === id);
+    // A published mosaic's feed view never reveals a private item or
+    // anything beneath it — filtering here, the one place every other
+    // tree helper (badge counts, descend's bounds, connections) reads
+    // through, is enough. Safe even for the callers that mutate the tree
+    // (e.g. connect's re-parenting): those are edit actions, and feedMode
+    // is only ever on while the whole mosaic is locked, so they never run
+    // at the same time.
+    return this.feedMode ? kids.filter((it) => !it.private) : kids;
   }
 
   // ---------- connections: items joined by a line share ONE layer ----------
@@ -404,6 +418,12 @@ export class ItemLayer {
     return items.find((it) => it.id === id);
   }
   _visible(item) {
+    // Kept private, and this is the feed's read-only view of a published
+    // mosaic: never shown, at any depth — see item.private / feedMode.
+    // Normal editing (feedMode off) always shows it; that's the whole
+    // point of "private" — keep working on it, just leave it out once
+    // published.
+    if (this.feedMode && item.private) return false;
     // A layer shows exactly its own contents: the top-level mosaic shows
     // root items, a descended layer shows only the focus item's direct
     // children — nothing above, nothing further below (that's the NEXT
@@ -1401,6 +1421,10 @@ export class ItemLayer {
       const ghost = !current && parentLayer !== undefined && (it.parentId || null) === parentLayer;
       el.classList.toggle("is-hidden", !current && !ghost);
       el.classList.toggle("is-ghost", ghost);
+      // A working-view-only cue: this won't be in the feed if the mosaic
+      // gets published. Never shown in feedMode itself — there it's just
+      // gone (see _visible), not marked.
+      el.classList.toggle("is-private", !!it.private && !this.feedMode);
       // The item you just descended FROM — not every ghosted sibling, just
       // this one specific item, the actual host of the layer you're now
       // on — shows its own text at full size while it's serving as your
@@ -1650,6 +1674,12 @@ export class ItemLayer {
     const noteBtn = this.bar.querySelector('[data-act="pinnote"]');
     noteBtn.classList.toggle("is-on", !!item?.noteText);
     noteBtn.textContent = item?.noteText ? "📝 edit note" : "📝 attach note";
+
+    // Kept out of the feed if this mosaic gets published — see item.private
+    // / _visible. Any item type; a static label (like draw/connect/divide)
+    // rather than one that relabels, since there's no popover here to open.
+    const privateBtn = this.bar.querySelector('[data-act="private"]');
+    privateBtn.classList.toggle("is-on", !!item?.private);
     this._reflectConnectState();
     this.positionBar();
   }
@@ -1808,6 +1838,19 @@ export class ItemLayer {
     this.bar.querySelector('[data-act="pinnote"]').addEventListener("click", () => {
       const item = this._get(this.selected);
       if (item) this.onReadPinnedNote?.(item);
+    });
+    // Keep working on it, out of sight of the feed until it's ready — see
+    // item.private. A plain toggle, not an edit worth reopening a popover
+    // for.
+    this.bar.querySelector('[data-act="private"]').addEventListener("click", () => {
+      const item = this._get(this.selected);
+      if (!item) return;
+      pushUndoSnapshot();
+      if (item.private) delete item.private;
+      else item.private = true;
+      save();
+      this._showBar();
+      this._applyVisibility();
     });
   }
 

@@ -91,6 +91,27 @@ html, body {
   border-color: var(--accent);
   color: var(--accent-ink);
 }
+/* Publish this mosaic to the feed — see main.js's applyPublishState /
+   store.js's setCanvasPublished. Editing only (hidden below, alongside
+   rename, while just viewing); never shown at all on a mosaic browsed FROM
+   the feed (.is-feed) — you don't publish someone else's canvas. */
+.publish-toggle {
+  position: fixed;
+  top: 14px; left: 240px;
+  z-index: 30;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+.publish-toggle:hover { background: rgba(176, 125, 75, .12); }
+.publish-toggle.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+#canvasView.is-feed .edit-toggle { display: none; }
 /* The tint layer: painted by the viewport's own backdrop so it pans and
    zooms as part of the scene's ground, not a film floating over items. */
 #canvasView:not(.is-viewing) .viewport {
@@ -110,6 +131,7 @@ html, body {
    (play, open link, read note, pocket) all stay. */
 #canvasView.is-viewing .toolbar,
 #canvasView.is-viewing .undo-btn,
+#canvasView.is-viewing .publish-toggle,
 #canvasView.is-viewing .item-bar,
 #canvasView.is-viewing .canvas-rename-btn,
 #canvasView.is-viewing .yt-card__edit,
@@ -233,6 +255,14 @@ html, body {
   padding: 28px 28px 8px;
 }
 .home__title { margin: 0; font-size: 28px; font-weight: 600; }
+.home__head-tools { display: flex; align-items: center; gap: 10px; }
+.home__feed-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  font-size: 14px; font-weight: 500; color: var(--ink);
+}
+.home__feed-link:hover { background: rgba(176, 125, 75, .12); }
 .home__me {
   display: inline-flex; align-items: center; gap: 8px;
   background: var(--panel); border: 1px solid var(--line);
@@ -263,7 +293,13 @@ html, body {
 }
 .tile:hover { transform: translateY(-2px); box-shadow: var(--shadow); }
 .tile__name { font-size: 16px; font-weight: 500; word-break: break-word; }
+.tile__badge {
+  position: absolute; top: 10px; left: 12px;
+  font-size: 14px;
+}
 .tile--courtyard { background: linear-gradient(135deg, #eef3e9, #f7f4ee); }
+.tile--feed { background: linear-gradient(135deg, #fdf3e3, #f7f4ee); }
+.feed__empty { margin: 24px 28px; opacity: .7; max-width: 46em; }
 .tile--add {
   align-items: center; justify-content: center;
   border-style: dashed; color: var(--accent); font-weight: 600; font-size: 15px;
@@ -554,6 +590,16 @@ html, body {
 /* Drawing mode shows a crosshair over the active item. */
 .item.is-drawing { cursor: crosshair; }
 .item.is-drawing .ink { pointer-events: auto; }
+
+/* Kept out of the feed if this mosaic gets published — see items.js's
+   item.private / _visible and the item bar's "🔒 keep private". A working-
+   view-only cue: dashed rather than solid so it never reads as a selection
+   ring, and never applied in feedMode (there it's just not rendered at
+   all, ghosted siblings included). */
+.item.is-private {
+  outline: 2px dashed var(--ink-faint, #9a927a);
+  outline-offset: 4px;
+}
 
 /* Divide mode (build-your-own tzuras hadaf) — just the cursor, deliberately
    NOT .ink's pointer-events too (unlike is-drawing above): .ink is a CHILD
