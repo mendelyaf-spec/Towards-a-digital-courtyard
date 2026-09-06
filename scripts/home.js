@@ -4,7 +4,10 @@ import {
   listCanvases, createCanvas, renameCanvas, deleteCanvas, reorderCanvases,
   getMe, setMe,
 } from "./store.js";
-import { listCourtyards, createInvite } from "../courtyardcreationlogic.js";
+import {
+  listCourtyards, createInvite, listCourtyardRequests, acceptCourtyardRequest,
+  removeCourtyardRequest, purgeCourtyardRequestsForCanvas, describeDuration,
+} from "../courtyardcreationlogic.js";
 import { editInline } from "./inlineedit.js";
 import { go } from "./router.js";
 
@@ -60,7 +63,9 @@ export function renderHome(container) {
       iconBtn("🗑", "Delete", (e) => {
         e.stopPropagation();
         if (confirm(`Delete "${c.name}"? This can't be undone.`)) {
-          deleteCanvas(c.id); renderHome(container);
+          deleteCanvas(c.id);
+          purgeCourtyardRequestsForCanvas(c.id); // don't leave a stranded request behind
+          renderHome(container);
         }
       })
     );
@@ -72,6 +77,40 @@ export function renderHome(container) {
   add.onclick = () => { const c = createCanvas(); go("canvas/" + c.id); };
   grid.append(add);
   container.append(grid);
+
+  // Courtyard requests: born in the feed (see courtyardRequest.js), when
+  // browsing a published mosaic that overlaps with one of yours. Single
+  // device, one profile — so, same as an invite link, you can end up
+  // sending and accepting the same request yourself, as a demo of what
+  // happens once someone actually does.
+  const requests = listCourtyardRequests();
+  if (requests.length) {
+    container.append(sectionTitle("Courtyard requests"));
+    const reqList = el("div", "requests-list");
+    for (const r of requests) {
+      const row = el("div", "request-row");
+      const text = el("div", "request-row__text");
+      text.innerHTML = `<strong>${escapeHtml(r.fromCanvasName)}</strong> proposes joining `
+        + `<strong>${escapeHtml(r.toCanvasName)}</strong> in a shared courtyard`
+        + `<span class="request-row__rules">up to ${r.rules.maxMembers} members · `
+        + `${describeDuration(r.rules.durationHours)}</span>`;
+      const actions = el("div", "request-row__actions");
+      actions.append(
+        iconBtn("✓ accept", "Accept and open the new courtyard", () => {
+          const res = acceptCourtyardRequest(r.id);
+          if (res.error) { alert(res.error); renderHome(container); return; }
+          go("courtyard/" + res.courtyard.id);
+        }),
+        iconBtn("✕ decline", "Decline this request", () => {
+          removeCourtyardRequest(r.id);
+          renderHome(container);
+        })
+      );
+      row.append(text, actions);
+      reqList.append(row);
+    }
+    container.append(reqList);
+  }
 
   // Your courtyards.
   container.append(sectionTitle("Courtyards"));

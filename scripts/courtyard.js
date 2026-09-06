@@ -33,6 +33,18 @@ export function renderCourtyard(container, id) {
   };
   container.append(title);
 
+  // The agreed rules live in full in the void's own panel below — this is
+  // just the one line worth seeing before you scroll there.
+  if (ct.expiresAt) {
+    const ended = Date.now() > ct.expiresAt;
+    const status = document.createElement("p");
+    status.className = "courtyard-status" + (ended ? " courtyard-status--ended" : "");
+    status.textContent = ended
+      ? `This courtyard ended on ${new Date(ct.expiresAt).toLocaleDateString()}.`
+      : `Live until ${new Date(ct.expiresAt).toLocaleDateString()}.`;
+    container.append(status);
+  }
+
   const stage = div("courtyard-stage");
   stage.append(
     memberHalf(ct, ct.members[0], "left"),

@@ -16,7 +16,8 @@ import { renderFeed } from "./feed.js";
 import { renderCourtyard } from "./courtyard.js";
 import { migrate, getCanvas, createCanvas, listCanvases, renameCanvas, save, items, setCanvasPublished } from "./store.js";
 import { canUndo, setUndoChangeListener } from "./undo.js";
-import { consumeInvite } from "../courtyardcreationlogic.js";
+import { consumeInvite, canvasCourtyard } from "../courtyardcreationlogic.js";
+import { openProposeCourtyard } from "./courtyardRequest.js";
 import { editInline } from "./inlineedit.js";
 
 migrate(); // bring any old single-canvas data forward
@@ -425,6 +426,19 @@ publishToggle.addEventListener("click", () => {
   applyPublishState(next);
 });
 
+// ---------- courtyard requests: propose one from the feed ----------
+// Only ever offered while browsing someone else's published mosaic (see
+// showFeedCanvas) and only if it isn't already spoken for by a courtyard —
+// see canvasCourtyard. Accepting (from home.js, since it can happen well
+// after this tap) is what actually builds the courtyard.
+const proposeCourtyardBtn = document.getElementById("proposeCourtyard");
+proposeCourtyardBtn.addEventListener("click", (e) => {
+  if (!currentCanvasId) return;
+  openProposeCourtyard(e.currentTarget, currentCanvasId, () => {
+    alert("Request sent — accept it from your home page to open the courtyard it creates.");
+  });
+});
+
 // ---------- layers: the breadcrumb trail, and the ghost-opacity slider ----------
 const layerCrumb = document.getElementById("layerCrumb");
 const layerCrumbSteps = document.getElementById("layerCrumbSteps");
@@ -516,6 +530,7 @@ function showCanvas(id) {
   canvasTitle.textContent = getCanvas(id).name;
   layer.feedMode = false;
   applyPublishState(!!getCanvas(id).published);
+  proposeCourtyardBtn.hidden = true; // only ever offered from the feed, never on your own canvas
   applyEditMode(false); // a canvas always opens fixed — edit is a choice you make each visit
   layer.loadCanvas(id);
   bg.loadCanvas(id);
@@ -537,6 +552,7 @@ function showFeedCanvas(id) {
   canvasBack.title = "Back to the feed";
   canvasTitle.textContent = getCanvas(id).name;
   layer.feedMode = true;
+  proposeCourtyardBtn.hidden = !!canvasCourtyard(id); // already in one — nothing to propose
   applyEditMode(false);
   layer.loadCanvas(id);
   bg.loadCanvas(id);

@@ -112,6 +112,70 @@ html, body {
 .publish-toggle:hover { background: rgba(176, 125, 75, .12); }
 .publish-toggle.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
 #canvasView.is-feed .edit-toggle { display: none; }
+
+/* Propose merging this mosaic (browsed from the feed) with one of yours
+   into a shared courtyard — see scripts/courtyardRequest.js. Same slot as
+   .publish-toggle above: mutually exclusive by construction (one only
+   shows editing your own canvas, the other only browsing someone else's
+   from the feed), so they never actually collide on screen. */
+.propose-courtyard-btn {
+  position: fixed;
+  top: 14px; left: 240px;
+  z-index: 30;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+}
+.propose-courtyard-btn:hover { background: rgba(176, 125, 75, .12); }
+
+/* The "propose a shared courtyard" popover itself — same anchored-popover
+   language as links.css's .link-pop, kept as its own class since this
+   isn't about links. */
+.courtyard-pop {
+  position: fixed;
+  z-index: 50;
+  width: 280px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.courtyard-pop__label { font-size: 12px; font-weight: 600; color: var(--ink); }
+.courtyard-pop__row {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  font-size: 13px; color: var(--ink);
+}
+.courtyard-pop__row select, .courtyard-pop__row input {
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  padding: 6px 8px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--ink);
+}
+.courtyard-pop__max { width: 64px; }
+.courtyard-pop__hint { margin: 0; font-size: 11px; color: var(--ink); opacity: .6; }
+.courtyard-pop__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.courtyard-pop__cancel {
+  border: none; background: transparent; color: var(--ink);
+  font-size: 12.5px; cursor: pointer; padding: 6px 8px;
+}
+.courtyard-pop__send {
+  border: none; background: var(--accent); color: var(--accent-ink);
+  font-weight: 600; font-size: 12.5px; border-radius: 8px;
+  padding: 7px 14px; cursor: pointer;
+}
 /* The tint layer: painted by the viewport's own backdrop so it pans and
    zooms as part of the scene's ground, not a film floating over items. */
 #canvasView:not(.is-viewing) .viewport {
@@ -316,8 +380,24 @@ html, body {
 .tile--dragging { opacity: .5; box-shadow: none; transform: scale(.97); cursor: grabbing; }
 .tile--dragging .tile__tools { opacity: 1; } /* handle stays visible even once the pointer's left the tile */
 
+/* Courtyard requests: born in the feed (see scripts/courtyardRequest.js) —
+   listed here rather than as tiles, since there's just text and two
+   actions to show, not a place to open. */
+.requests-list { display: flex; flex-direction: column; gap: 8px; padding: 0 28px 8px; }
+.request-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 12px 14px;
+}
+.request-row__text { font-size: 14px; color: var(--ink); }
+.request-row__rules { display: block; font-size: 12px; opacity: .65; margin-top: 2px; }
+.request-row__actions { display: flex; gap: 6px; flex: none; }
+.request-row__actions .tile__tool { width: auto; padding: 6px 10px; font-size: 12.5px; }
+
 /* ---------- Courtyard ---------- */
 .courtyard-title { text-align: center; margin: 18px 0 6px; font-size: 22px; font-weight: 600; cursor: pointer; }
+.courtyard-status { text-align: center; margin: 0 0 10px; font-size: 13px; opacity: .65; }
+.courtyard-status--ended { color: #b04b4b; opacity: .85; }
 .courtyard-msg { text-align: center; opacity: .7; padding: 20px; }
 .courtyard-stage {
   display: grid;

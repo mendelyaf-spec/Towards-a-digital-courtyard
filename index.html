@@ -37,6 +37,10 @@
     <!-- Published mosaics show up in the feed; anything marked private on
          the item bar stays out of it. Editing only — hidden while viewing. -->
     <button id="publishToggle" class="publish-toggle" type="button" aria-pressed="false" title="Publish this mosaic to the feed">📰 publish</button>
+    <!-- Only ever shown browsing a published mosaic in the feed — see
+         main.js's showFeedCanvas. Same on-screen spot as publish above:
+         the two are never visible at once. -->
+    <button id="proposeCourtyard" class="propose-courtyard-btn" type="button" hidden title="Propose combining this mosaic with one of yours into a shared courtyard">🤝 propose courtyard</button>
     <div class="canvas-title">
       <span id="canvasTitle"></span>
       <button id="canvasRename" class="canvas-rename-btn" type="button" title="Rename canvas">✎</button>
