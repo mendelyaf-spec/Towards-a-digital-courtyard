@@ -23,8 +23,14 @@
   <link rel="stylesheet" href="videoframe/videoframe.css" />
   <link rel="stylesheet" href="browser/browser.css" />
   <link rel="stylesheet" href="docviewer/docviewer.css" />
+  <link rel="stylesheet" href="focus/focus.css" />
 </head>
 <body>
+  <!-- Session status: which phase you're in (home/courtyard/feed) and the
+       countdown to the next one, if you've ever declared a session (see
+       focus/focus.js). Persistent across every view. Hidden until then. -->
+  <div id="focusBanner" class="focus-banner" hidden></div>
+
   <!-- HOME: your canvases + courtyards (rendered by home.js) -->
   <div id="homeView" class="view"></div>
 
@@ -276,6 +282,19 @@
           <button id="studioPosNext" class="btn btn--solid" type="button">preview →</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- Walking a configured path: the alternative to a hard block (see
+       focus/focus.js's getPath/setPath) — a declared number of minutes
+       with the scenery you chose, before you actually arrive. Only ever
+       shown mid-walk; filled in by focus/focusUI.js. -->
+  <div id="focusWalk" class="focus-walk" hidden>
+    <div class="focus-walk__panel">
+      <p id="focusWalkLabel" class="focus-walk__label"></p>
+      <div id="focusWalkScenery" class="focus-walk__scenery"></div>
+      <p id="focusWalkCountdown" class="focus-walk__countdown"></p>
+      <button id="focusWalkCancel" class="focus-walk__cancel" type="button">‹ turn back</button>
     </div>
   </div>
 

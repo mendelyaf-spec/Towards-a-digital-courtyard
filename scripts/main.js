@@ -19,6 +19,8 @@ import { canUndo, setUndoChangeListener } from "./undo.js";
 import { consumeInvite, canvasCourtyard } from "../courtyardcreationlogic.js";
 import { openProposeCourtyard } from "./courtyardRequest.js";
 import { editInline } from "./inlineedit.js";
+import { zoneAllowed, timeUntilZone, getPath } from "../focus/focus.js";
+import { mountFocusBanner, showBlockedToast, openWalk } from "../focus/focusUI.js";
 
 migrate(); // bring any old single-canvas data forward
 
@@ -513,9 +515,56 @@ function showView(name) {
   feedView.hidden = name !== "feed";
 }
 
+// ---------- session focus: gate courtyard/feed per focus/focus.js ----------
+// "home" covers both the home page and your own canvases — never gated
+// (see focus.js's zoneAllowed, which never restricts it either). currentZone/
+// lastGoodHash track where you actually last landed, purely so a configured
+// walk (an alternative to the gate below, not an addition to it — see
+// guardZone) knows where it's walking FROM, and can put you back exactly
+// there if you turn back partway.
+let currentZone = "home";
+let lastGoodHash = location.hash || "#/";
+
+function finishedRoute(zone) {
+  currentZone = zone;
+  lastGoodHash = location.hash || "#/";
+}
+
+/** Runs before actually rendering a courtyard/feed route. `render` fires
+ *  immediately once it's clear to proceed — normally right away, but only
+ *  after a walk finishes if this pair has one configured (that REPLACES
+ *  the lock check below, it doesn't add to it — "an alternative to
+ *  blocking access"). Never called for "home", which nothing here gates. */
+function guardZone(zone, render) {
+  const path = zone !== currentZone ? getPath(currentZone, zone) : null;
+  if (path) {
+    const origin = lastGoodHash;
+    openWalk(currentZone, zone, path, {
+      onComplete: () => { render(); finishedRoute(zone); },
+      onCancel: () => { location.hash = origin; },
+    });
+    return;
+  }
+  if (!zoneAllowed(zone)) {
+    showBlockedToast(zone, timeUntilZone(zone));
+    go("");
+    return;
+  }
+  render();
+  finishedRoute(zone);
+}
+
+mountFocusBanner(document.getElementById("focusBanner"), {
+  // A phase just changed (e.g. the courtyard opened up) — if you're
+  // sitting on home looking at it, refresh so a locked tile/link stops
+  // looking locked without needing an unrelated action to trigger it.
+  onPhaseChange: () => { if (!homeView.hidden) renderHome(homeView); },
+});
+
 function showHome() {
   showView("home");
   renderHome(homeView);
+  finishedRoute("home");
 }
 let currentCanvasId = null;
 let viewingFeed = false; // true while canvasView is showing a published mosaic FROM the feed, read-only
@@ -536,37 +585,44 @@ function showCanvas(id) {
   bg.loadCanvas(id);
   pocket.loadCanvas(id);
   viewport.reset();
+  finishedRoute("home"); // your own canvas is part of your homepage, not a gated zone
 }
 // A published mosaic, browsed from the feed: exactly the canvas above, but
 // read-only (edit is never offered — see .is-feed in styles/main.css) and
 // with item.private items left out (layer.feedMode — see items.js).
 function showFeedCanvas(id) {
-  // Gated on .published, not just existing — an unpublished canvas has no
-  // feed URL to reach it by, but a stale/guessed one shouldn't work either.
-  if (!id || !getCanvas(id)?.published) return go("feed");
-  showView("canvas");
-  currentCanvasId = id;
-  viewingFeed = true;
-  canvasView.classList.add("is-feed");
-  canvasBack.textContent = "‹ feed";
-  canvasBack.title = "Back to the feed";
-  canvasTitle.textContent = getCanvas(id).name;
-  layer.feedMode = true;
-  proposeCourtyardBtn.hidden = !!canvasCourtyard(id); // already in one — nothing to propose
-  applyEditMode(false);
-  layer.loadCanvas(id);
-  bg.loadCanvas(id);
-  pocket.loadCanvas(id);
-  viewport.reset();
+  guardZone("feed", () => {
+    // Gated on .published, not just existing — an unpublished canvas has
+    // no feed URL to reach it by, but a stale/guessed one shouldn't work.
+    if (!id || !getCanvas(id)?.published) return go("feed");
+    showView("canvas");
+    currentCanvasId = id;
+    viewingFeed = true;
+    canvasView.classList.add("is-feed");
+    canvasBack.textContent = "‹ feed";
+    canvasBack.title = "Back to the feed";
+    canvasTitle.textContent = getCanvas(id).name;
+    layer.feedMode = true;
+    proposeCourtyardBtn.hidden = !!canvasCourtyard(id); // already in one — nothing to propose
+    applyEditMode(false);
+    layer.loadCanvas(id);
+    bg.loadCanvas(id);
+    pocket.loadCanvas(id);
+    viewport.reset();
+  });
 }
 function showFeed(id) {
   if (id) return showFeedCanvas(id);
-  showView("feed");
-  renderFeed(feedView);
+  guardZone("feed", () => {
+    showView("feed");
+    renderFeed(feedView);
+  });
 }
 function showCourtyard(id) {
-  showView("courtyard");
-  renderCourtyard(courtyardView, id);
+  guardZone("courtyard", () => {
+    showView("courtyard");
+    renderCourtyard(courtyardView, id);
+  });
 }
 function showJoin(token) {
   // On this device, consume the invite and jump into the new courtyard.

@@ -10,6 +10,8 @@ import {
 } from "../courtyardcreationlogic.js";
 import { editInline } from "./inlineedit.js";
 import { go } from "./router.js";
+import { zoneAllowed, timeUntilZone, describeCountdown } from "../focus/focus.js";
+import { renderPlanner } from "../focus/focusUI.js";
 
 export function renderHome(container) {
   const me = getMe();
@@ -26,7 +28,17 @@ export function renderHome(container) {
         <span class="home__me-name">${escapeHtml(me.name)}</span>
       </button>
     </div>`;
-  head.querySelector(".home__feed-link").onclick = () => go("feed");
+  const feedLink = head.querySelector(".home__feed-link");
+  const feedOpen = zoneAllowed("feed");
+  feedLink.classList.toggle("is-locked", !feedOpen);
+  if (feedOpen) {
+    feedLink.title = "Browse published mosaics";
+    feedLink.onclick = () => go("feed");
+  } else {
+    const wait = timeUntilZone("feed");
+    feedLink.title = wait != null ? `Opens in ${describeCountdown(wait)} — see "plan your next session" below` : "Plan a session below to open the feed";
+    feedLink.onclick = () => alert(`🔒 The feed isn't open right now${wait != null ? ` — opens in ${describeCountdown(wait)}.` : "."}`);
+  }
   head.querySelector(".home__me").onclick = () => {
     const name = prompt("Your name", me.name);
     if (name === null) return;
@@ -114,11 +126,19 @@ export function renderHome(container) {
 
   // Your courtyards.
   container.append(sectionTitle("Courtyards"));
+  const courtyardOpen = zoneAllowed("courtyard");
+  const courtyardWait = courtyardOpen ? 0 : timeUntilZone("courtyard");
   const cyGrid = el("div", "home__grid");
   for (const ct of listCourtyards()) {
-    const tile = el("div", "tile tile--courtyard");
-    tile.innerHTML = `<span class="tile__name">${escapeHtml(ct.name)}</span>`;
-    tile.onclick = () => go("courtyard/" + ct.id);
+    const tile = el("div", "tile tile--courtyard" + (courtyardOpen ? "" : " is-locked"));
+    tile.innerHTML = `<span class="tile__name">${escapeHtml(ct.name)}</span>`
+      + (courtyardOpen ? "" : `<span class="tile__badge" title="Locked">🔒</span>`);
+    if (courtyardOpen) {
+      tile.onclick = () => go("courtyard/" + ct.id);
+    } else {
+      tile.title = courtyardWait != null ? `Opens in ${describeCountdown(courtyardWait)}` : "Plan a session below to open the courtyard";
+      tile.onclick = () => alert(`🔒 The courtyard isn't open right now${courtyardWait != null ? ` — opens in ${describeCountdown(courtyardWait)}.` : "."}`);
+    }
     cyGrid.append(tile);
   }
   const invite = el("button", "tile tile--add");
@@ -126,6 +146,12 @@ export function renderHome(container) {
   invite.onclick = () => startInvite();
   cyGrid.append(invite);
   container.append(cyGrid);
+
+  // Plan your next session — see focus/focus.js for what this actually
+  // governs (this app's own home/courtyard/feed only — see its own note
+  // on why it can't reach any further than that).
+  container.append(sectionTitle("Plan your next session"));
+  renderPlanner(container, () => renderHome(container));
 }
 
 // Mint a one-time invite link tied to one of your canvases.

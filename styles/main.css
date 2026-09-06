@@ -327,6 +327,7 @@ html, body {
   font-size: 14px; font-weight: 500; color: var(--ink);
 }
 .home__feed-link:hover { background: rgba(176, 125, 75, .12); }
+.home__feed-link.is-locked { opacity: .55; cursor: not-allowed; }
 .home__me {
   display: inline-flex; align-items: center; gap: 8px;
   background: var(--panel); border: 1px solid var(--line);
@@ -362,6 +363,7 @@ html, body {
   font-size: 14px;
 }
 .tile--courtyard { background: linear-gradient(135deg, #eef3e9, #f7f4ee); }
+.tile--courtyard.is-locked { opacity: .5; cursor: not-allowed; filter: grayscale(.4); }
 .tile--feed { background: linear-gradient(135deg, #fdf3e3, #f7f4ee); }
 .feed__empty { margin: 24px 28px; opacity: .7; max-width: 46em; }
 .tile--add {
