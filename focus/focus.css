@@ -87,11 +87,12 @@
 .focus-path-row__clear { color: #b04b4b; }
 .focus-path-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; width: 100%; }
 .focus-path-form__minutes { width: 64px; }
-.focus-path-form__url { flex: 1; min-width: 200px; }
-.focus-path-form__minutes, .focus-path-form__url {
+.focus-path-form__url, .focus-path-form__videourl { flex: 1; min-width: 200px; }
+.focus-path-form__minutes, .focus-path-form__url, .focus-path-form__videourl {
   border: 1px solid var(--line); border-radius: 7px; padding: 6px 8px;
   font-size: 13px; font-family: inherit; background: var(--bg); color: var(--ink);
 }
+.focus-path-form__hint { width: 100%; margin: 4px 0 0; font-size: 11px; opacity: .6; }
 .focus-path-form__save {
   border: none; background: var(--accent); color: var(--accent-ink);
   font-weight: 600; font-size: 12.5px; border-radius: 7px; padding: 6px 12px; cursor: pointer;
@@ -121,7 +122,7 @@
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 10px;
 }
-.focus-walk__frame { width: 100%; height: 100%; border: none; }
+.focus-walk__frame { width: 100%; height: 100%; border: none; object-fit: contain; background: #000; }
 /* Generic (non-YouTube) scenery only — see focusUI.js's sceneryHTML. Same
    look-only shield as the in-app browser (browser/browser.css): sits on
    top of the frame and absorbs every click/keystroke aimed at it. The

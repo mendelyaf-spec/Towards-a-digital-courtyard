@@ -165,9 +165,17 @@ export function getPath(a, b) {
   return readJSON(PATHS_KEY, {})[pairKey(a, b)] || null;
 }
 
-export function setPath(a, b, { minutes, scenery }) {
+export function setPath(a, b, { minutes, scenery, videoOverride }) {
   const all = readJSON(PATHS_KEY, {});
-  all[pairKey(a, b)] = { minutes: Math.max(0, minutes || 0), scenery: scenery || null };
+  all[pairKey(a, b)] = {
+    minutes: Math.max(0, minutes || 0),
+    scenery: scenery || null,
+    // A specific video source to play directly instead of the page above
+    // (see classifyVideoUrl / focusUI.js's openPathForm) — set only when
+    // the page itself isn't already one (resolveLink's own YouTube
+    // detection covers that case with no override needed at all).
+    videoOverride: videoOverride || null,
+  };
   writeJSON(PATHS_KEY, all);
 }
 
@@ -180,4 +188,26 @@ export function clearPath(a, b) {
 export function listPaths() {
   const all = readJSON(PATHS_KEY, {});
   return Object.entries(all).map(([key, v]) => ({ key, ...v }));
+}
+
+// ---------- "pull just the video out" ----------
+// A cross-origin page's DOM is invisible to our own JS (same-origin
+// policy) — there's no such thing as an element selector reaching into
+// someone else's site, however precise. The one thing that DOES survive
+// that wall is loading a plain URL fresh: a direct video file, or a
+// platform's own embed URL (YouTube — resolveLink already special-cases
+// that one — or Vimeo). Kept separate from resolveLink (links.js), not
+// merged into it, so recognizing a Vimeo/video-file link only changes
+// what a WALK does with it — item embeds, hint photos, and the Pocket's
+// own "add link" all keep behaving exactly as they already do.
+const VIMEO_RE = /vimeo\.com\/(?:video\/)?(\d+)/i;
+const VIDEO_FILE_RE = /\.(mp4|webm|ogg|ogv|mov|m4v)(?:[?#]|$)/i;
+
+/** @returns {{kind:'vimeo', videoId, url} | {kind:'video', url} | null} */
+export function classifyVideoUrl(url) {
+  if (!url) return null;
+  const vimeo = url.match(VIMEO_RE);
+  if (vimeo) return { kind: "vimeo", videoId: vimeo[1], url };
+  if (VIDEO_FILE_RE.test(url)) return { kind: "video", url };
+  return null;
 }

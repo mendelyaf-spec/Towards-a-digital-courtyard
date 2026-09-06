@@ -4,7 +4,7 @@
 
 import {
   listPlans, addPlan, removePlan, currentPhase, focusStatus, describeCountdown,
-  getPath, setPath, clearPath,
+  getPath, setPath, clearPath, classifyVideoUrl,
 } from "./focus.js";
 import { resolveLink } from "../links/links.js";
 
@@ -179,7 +179,8 @@ function renderPathRow(a, b) {
       const info = document.createElement("span");
       info.className = "focus-path-row__info";
       const sceneryLabel = path.scenery?.title || path.scenery?.domain || path.scenery?.url || "no scenery set";
-      info.textContent = `${path.minutes} min · ${sceneryLabel}`;
+      const playable = path.videoOverride || (path.scenery?.kind === "youtube" ? path.scenery : null);
+      info.textContent = `${path.minutes} min · ${sceneryLabel}` + (playable ? ` · 🎬 plays directly (${playable.kind})` : "");
       const clear = document.createElement("button");
       clear.type = "button"; clear.className = "focus-path-row__clear"; clear.textContent = "✕ clear";
       clear.addEventListener("click", () => { clearPath(a, b); refresh(); });
@@ -200,10 +201,12 @@ function openPathForm(row, a, b, onDone) {
   form.className = "focus-path-form";
   form.innerHTML = `
     <input type="number" min="1" class="focus-path-form__minutes" placeholder="minutes" value="7" />
-    <input type="text" class="focus-path-form__url" placeholder="paste a video or PDF link — the scenery for this walk" />
+    <input type="text" class="focus-path-form__url" placeholder="paste a page, video, or PDF link — the scenery for this walk" />
+    <input type="text" class="focus-path-form__videourl" placeholder="optional: the video's own direct link, if the page above isn't one" />
     <button type="button" class="focus-path-form__save">save</button>
     <button type="button" class="focus-path-form__cancel">cancel</button>
-    <p class="focus-path-form__err" hidden>that doesn't look like a link</p>`;
+    <p class="focus-path-form__err" hidden>that doesn't look like a link</p>
+    <p class="focus-path-form__hint">A YouTube/Vimeo link, or a direct video file, plays right here. Anything else shows look-only — nothing on the page can be clicked or typed into (there's no way to reach into someone else's site more selectively than that). If you know the video's real source and the page itself isn't it, paste that in the second box to watch it directly.</p>`;
   row.replaceChildren(form);
   form.querySelector(".focus-path-form__cancel").addEventListener("click", onDone);
   form.querySelector(".focus-path-form__save").addEventListener("click", async () => {
@@ -213,9 +216,31 @@ function openPathForm(row, a, b, onDone) {
       form.querySelector(".focus-path-form__err").hidden = false;
       return;
     }
-    setPath(a, b, { minutes, scenery });
+    let videoOverride = null;
+    const videoUrlInput = form.querySelector(".focus-path-form__videourl").value.trim();
+    if (videoUrlInput) {
+      videoOverride = await resolvePlayableVideo(videoUrlInput);
+      if (!videoOverride) {
+        alert('That doesn\'t look like a playable video link (YouTube, Vimeo, or a direct video file) — saving without it; the page above will show look-only.');
+      }
+    } else if (scenery.kind !== "youtube") {
+      // The main link might already BE one of these (e.g. a Vimeo page
+      // pasted directly) — no second field needed for that common case.
+      videoOverride = classifyVideoUrl(scenery.url);
+    }
+    setPath(a, b, { minutes, scenery, videoOverride });
     onDone();
   });
+}
+
+/** Is this URL something we can actually play right here — YouTube
+ *  (resolveLink's own case), Vimeo, or a direct video file (both
+ *  classifyVideoUrl's)? null if not. */
+async function resolvePlayableVideo(input) {
+  const resolved = await resolveLink(input);
+  if (!resolved) return null;
+  if (resolved.kind === "youtube") return resolved;
+  return classifyVideoUrl(resolved.url);
 }
 
 // ---------- the walk itself: a full-screen interstitial ----------
@@ -224,7 +249,7 @@ let walkTimer = null;
 /**
  * @param {"home"|"courtyard"|"feed"} fromZone
  * @param {"home"|"courtyard"|"feed"} toZone
- * @param {{minutes:number, scenery:object|null}} path
+ * @param {{minutes:number, scenery:object|null, videoOverride:object|null}} path
  * @param {{onComplete:()=>void, onCancel:()=>void}} handlers
  */
 export function openWalk(fromZone, toZone, path, { onComplete, onCancel }) {
@@ -236,7 +261,7 @@ export function openWalk(fromZone, toZone, path, { onComplete, onCancel }) {
   if (!el) { onComplete?.(); return; } // defensive: never strand a navigation on a missing overlay
 
   label.textContent = `walking from ${ZONE_LABEL[fromZone]} to ${ZONE_LABEL[toZone]} — ${path.minutes} min`;
-  scenery.innerHTML = sceneryHTML(path.scenery);
+  scenery.innerHTML = sceneryHTML(path);
 
   const totalMs = Math.max(0, path.minutes) * 60000;
   const startedAt = Date.now();
@@ -267,19 +292,36 @@ export function openWalk(fromZone, toZone, path, { onComplete, onCancel }) {
 // end up back here, at your actual destination, once the clock runs out.
 const SCENERY_SANDBOX = "allow-scripts allow-same-origin allow-forms";
 
-function sceneryHTML(scenery) {
+function sceneryHTML(path) {
+  const scenery = path.scenery;
   if (!scenery) return `<p class="focus-walk__none">(no scenery set for this path — see the planner on your home page)</p>`;
-  if (scenery.kind === "youtube") {
-    return `<iframe class="focus-walk__frame" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(scenery.videoId)}?autoplay=1" allow="autoplay; encrypted-media" allowfullscreen title="scenery" sandbox="allow-scripts allow-same-origin"></iframe>`;
+
+  // Whatever's actually playable — a manual override (see openPathForm),
+  // or the page itself already being one (resolveLink's own YouTube case).
+  // Pulled out and played directly instead of showing the surrounding
+  // page at all: no nav bar, no search box, nothing else on that site
+  // exists here, because we're not framing that site in the first place.
+  const playable = path.videoOverride || (scenery.kind === "youtube" ? scenery : null);
+  if (playable?.kind === "youtube") {
+    return `<iframe class="focus-walk__frame" src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(playable.videoId)}?autoplay=1" allow="autoplay; encrypted-media" allowfullscreen title="scenery" sandbox="allow-scripts allow-same-origin"></iframe>`;
   }
-  // Any other link (a PDF included): most whole websites refuse to be
-  // framed at all (see links.js's own note on this), so a way to just
-  // open it stays right below the attempt rather than leaving a blank
-  // frame as the only option — the one deliberate, visible way out,
-  // same as the in-app browser's own "open in new tab". Scenery is
-  // passing-by, not something to browse — the shield (same idea as the
-  // in-app browser's own, see browser/browser.js) keeps it look-only, so
-  // nothing on the page can be clicked or typed into during the walk.
+  if (playable?.kind === "vimeo") {
+    return `<iframe class="focus-walk__frame" src="https://player.vimeo.com/video/${encodeURIComponent(playable.videoId)}?autoplay=1" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen title="scenery" sandbox="allow-scripts allow-same-origin"></iframe>`;
+  }
+  if (playable?.kind === "video") {
+    return `<video class="focus-walk__frame" src="${playable.url}" controls autoplay playsinline></video>`;
+  }
+
+  // No playable video, from either source: the whole page, look-only.
+  // Most whole websites refuse to be framed at all (see links.js's own
+  // note on this), so a way to just open it stays right below the
+  // attempt rather than leaving a blank frame as the only option — the
+  // one deliberate, visible way out, same as the in-app browser's own
+  // "open in new tab". The shield (same idea as the in-app browser's,
+  // see browser/browser.js) keeps whatever DOES load look-only: nothing
+  // on the page can be clicked or typed into during the walk — there's
+  // no way to reach in and allow just the parts worth seeing, since a
+  // cross-origin page's DOM is invisible to this app's own JS regardless.
   return `
     <div class="focus-walk__frame-wrap">
       <iframe class="focus-walk__frame" src="${scenery.url}" title="scenery" tabindex="-1" sandbox="${SCENERY_SANDBOX}"></iframe>
