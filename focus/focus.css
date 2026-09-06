@@ -122,6 +122,14 @@
   gap: 10px;
 }
 .focus-walk__frame { width: 100%; height: 100%; border: none; }
+/* Generic (non-YouTube) scenery only — see focusUI.js's sceneryHTML. Same
+   look-only shield as the in-app browser (browser/browser.css): sits on
+   top of the frame and absorbs every click/keystroke aimed at it. The
+   YouTube branch skips this wrapper entirely — that one you're meant to
+   actually watch. */
+.focus-walk__frame-wrap { position: relative; width: 100%; flex: 1; min-height: 0; }
+.focus-walk__frame-wrap .focus-walk__frame { position: absolute; inset: 0; }
+.focus-walk__shield { position: absolute; inset: 0; }
 .focus-walk__none { color: rgba(255,255,255,.6); font-size: 13px; padding: 20px; }
 .focus-walk__openlink { color: #fff; opacity: .8; font-size: 12px; padding: 8px; }
 .focus-walk__countdown { margin: 0; font-size: 20px; font-weight: 600; }

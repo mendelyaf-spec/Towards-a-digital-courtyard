@@ -206,10 +206,16 @@
       <button id="inAppBrowserOpenTab" class="in-app-browser__opentab" type="button">↗ open in new tab</button>
     </div>
     <!-- Wherever this link actually goes (a wiki page, anything), you can
-         read it and click around inside it — but nothing on it can pop a
-         real new tab or take over this page out from under you. No
-         allow-popups, no allow-top-navigation: see browser/browser.js. -->
-    <iframe id="inAppBrowserFrame" class="in-app-browser__frame" src="about:blank" title="In-app browser" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+         read it, but it's look-only: the shield below swallows every click
+         and keystroke aimed at it, so a nav menu, a search box, anything
+         on the page is never actually reachable — not just "can't leave",
+         genuinely can't be touched. The sandbox (no allow-popups, no
+         allow-top-navigation) is still the backstop if that ever changes;
+         see browser/browser.js. -->
+    <div class="in-app-browser__body">
+      <iframe id="inAppBrowserFrame" class="in-app-browser__frame" src="about:blank" title="In-app browser" tabindex="-1" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+      <div class="in-app-browser__shield" aria-hidden="true"></div>
+    </div>
   </div>
 
   <!-- Choose a frame from an uploaded video, before it goes into the studio -->

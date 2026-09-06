@@ -65,9 +65,28 @@
 }
 .in-app-browser__opentab:hover { background: rgba(0, 0, 0, .05); }
 
+.in-app-browser__body {
+  position: relative;
+  overflow: hidden;
+}
 .in-app-browser__frame {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   border: none;
   background: #fff;
+}
+/* Read-only by design (see index.html's own note on this): sits right on
+   top of the frame and absorbs every click/keystroke meant for it, so
+   whatever's actually inside — a nav bar, a search box, anything — is
+   never reachable, only visible. Plain pointer-events:auto (the default)
+   is enough to intercept; there's nothing to actually do with the event,
+   so no handler is wired to it at all. Fading the panel (.is-seethrough
+   above) still makes this whole panel — shield included, it's just
+   another descendant — click-through to the canvas underneath; that's a
+   different, deliberate escape hatch and this doesn't touch it. */
+.in-app-browser__shield {
+  position: absolute;
+  inset: 0;
 }

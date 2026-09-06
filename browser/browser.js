@@ -12,17 +12,20 @@
 // frame just renders blank; there's no catchable "failed" event for it,
 // since revealing the reason would itself leak cross-origin information).
 // So there's always a visible, one-click "open in a new tab instead" — the
-// honest fallback for whenever a site says no.
+// honest fallback for whenever a site says no, or for whenever the page is
+// genuinely worth interacting with rather than just reading in place.
 //
-// Containment, for whatever DOES show up: the iframe (see index.html) is
-// sandboxed with no allow-popups and no allow-top-navigation. You can read
-// the page and click around inside it — a link just navigates the frame
-// to wherever it points, still right here — but nothing on the page can
-// pop a real new tab or hijack this page out from under you. That's a
-// real, standards-enforced boundary; it's not something JS in this file
-// has to (or even can) police itself. The one deliberate way out is the
-// "open in new tab" button above — a click you choose, not one the page
-// sneaks past you.
+// Look-only, for whatever DOES show up: the __shield (see index.html/
+// browser.css) sits right on top of the frame and swallows every click and
+// keystroke aimed at it, so nothing inside — a nav menu, a search box, a
+// video's own play button, anything — is ever actually reachable, only
+// visible. That's a plain DOM measure, not a security trick, so it works
+// regardless of what the framed page tries. The iframe's sandbox attribute
+// (no allow-popups, no allow-top-navigation) is a second, independent
+// backstop underneath it — belt and suspenders, since the shield alone
+// already keeps the page from ever registering a click in the first
+// place. The one deliberate way past either of them is the "open in new
+// tab" button above — a click you choose, not one the page sneaks past you.
 
 export class InAppBrowser {
   constructor() {

@@ -276,8 +276,14 @@ function sceneryHTML(scenery) {
   // framed at all (see links.js's own note on this), so a way to just
   // open it stays right below the attempt rather than leaving a blank
   // frame as the only option — the one deliberate, visible way out,
-  // same as the in-app browser's own "open in new tab".
+  // same as the in-app browser's own "open in new tab". Scenery is
+  // passing-by, not something to browse — the shield (same idea as the
+  // in-app browser's own, see browser/browser.js) keeps it look-only, so
+  // nothing on the page can be clicked or typed into during the walk.
   return `
-    <iframe class="focus-walk__frame" src="${scenery.url}" title="scenery" sandbox="${SCENERY_SANDBOX}"></iframe>
+    <div class="focus-walk__frame-wrap">
+      <iframe class="focus-walk__frame" src="${scenery.url}" title="scenery" tabindex="-1" sandbox="${SCENERY_SANDBOX}"></iframe>
+      <div class="focus-walk__shield" aria-hidden="true"></div>
+    </div>
     <a class="focus-walk__openlink" href="${scenery.url}" target="_blank" rel="noopener">↗ open "${escapeHtml(scenery.title || scenery.domain || scenery.url)}" in a new tab, if it didn't load above</a>`;
 }
